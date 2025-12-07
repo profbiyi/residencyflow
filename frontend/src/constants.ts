@@ -202,6 +202,198 @@ export const SOURCE_TYPES: ConnectorType[] = [
     }
   },
 
+  // --- MORE DATABASES ---
+  { 
+    id: 'redshift', name: 'Amazon Redshift', icon: 'database', type: 'source', description: 'AWS data warehouse', category: 'Database',
+    schema: dbSchema(5439)
+  },
+  { 
+    id: 'mssql', name: 'Microsoft SQL Server', icon: 'database', type: 'source', description: 'Enterprise database', category: 'Database',
+    schema: dbSchema(1433)
+  },
+  { 
+    id: 'oracle', name: 'Oracle Database', icon: 'database', type: 'source', description: 'Enterprise relational DB', category: 'Database',
+    schema: {
+      required: ['host', 'port', 'service_name', 'username', 'password'],
+      properties: {
+        host: { type: 'string' as const, title: 'Host' },
+        port: { type: 'integer' as const, title: 'Port', default: 1521 },
+        service_name: { type: 'string' as const, title: 'Service Name / SID' },
+        username: { type: 'string' as const, title: 'Username' },
+        password: { type: 'string' as const, title: 'Password', format: 'password' as const, secret: true }
+      }
+    }
+  },
+
+  // --- MORE CRM & MARKETING ---
+  { 
+    id: 'pipedrive', name: 'Pipedrive', icon: 'briefcase', type: 'source', description: 'Sales CRM', category: 'CRM',
+    schema: {
+      required: ['api_key'],
+      properties: {
+        api_key: { type: 'string' as const, title: 'API Token', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'intercom', name: 'Intercom', icon: 'message-square', type: 'source', description: 'Customer messaging', category: 'CRM',
+    schema: {
+      required: ['access_token'],
+      properties: {
+        access_token: { type: 'string' as const, title: 'Access Token', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'mailchimp', name: 'Mailchimp', icon: 'megaphone', type: 'source', description: 'Email marketing', category: 'Marketing',
+    schema: {
+      required: ['api_key'],
+      properties: {
+        api_key: { type: 'string' as const, title: 'API Key', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'google_ads', name: 'Google Ads', icon: 'megaphone', type: 'source', description: 'Search advertising', category: 'Marketing',
+    schema: {
+      required: ['customer_id', 'developer_token', 'refresh_token', 'client_id', 'client_secret'],
+      properties: {
+        customer_id: { type: 'string' as const, title: 'Customer ID (without dashes)' },
+        developer_token: { type: 'string' as const, title: 'Developer Token', format: 'password' as const, secret: true },
+        refresh_token: { type: 'string' as const, title: 'Refresh Token', format: 'password' as const, secret: true },
+        client_id: { type: 'string' as const, title: 'OAuth Client ID' },
+        client_secret: { type: 'string' as const, title: 'OAuth Client Secret', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'linkedin_ads', name: 'LinkedIn Ads', icon: 'briefcase', type: 'source', description: 'Professional network ads', category: 'Marketing',
+    schema: {
+      required: ['access_token', 'account_id'],
+      properties: {
+        access_token: { type: 'string' as const, title: 'Access Token', format: 'password' as const, secret: true },
+        account_id: { type: 'string' as const, title: 'Ad Account ID' }
+      }
+    }
+  },
+
+  // --- MORE E-COMMERCE ---
+  { 
+    id: 'woocommerce', name: 'WooCommerce', icon: 'shopping-cart', type: 'source', description: 'WordPress e-commerce', category: 'E-Commerce',
+    schema: {
+      required: ['url', 'consumer_key', 'consumer_secret'],
+      properties: {
+        url: { type: 'string' as const, title: 'Store URL' },
+        consumer_key: { type: 'string' as const, title: 'Consumer Key' },
+        consumer_secret: { type: 'string' as const, title: 'Consumer Secret', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'square', name: 'Square', icon: 'credit-card', type: 'source', description: 'Point of sale & payments', category: 'E-Commerce',
+    schema: {
+      required: ['access_token'],
+      properties: {
+        access_token: { type: 'string' as const, title: 'Access Token', format: 'password' as const, secret: true },
+        is_sandbox: { type: 'boolean' as const, title: 'Sandbox Mode', default: false }
+      }
+    }
+  },
+
+  // --- MORE PRODUCTIVITY ---
+  { 
+    id: 'asana', name: 'Asana', icon: 'check-square', type: 'source', description: 'Work management', category: 'Productivity',
+    schema: {
+      required: ['access_token'],
+      properties: {
+        access_token: { type: 'string' as const, title: 'Personal Access Token', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'airtable', name: 'Airtable', icon: 'table', type: 'source', description: 'Spreadsheet-database hybrid', category: 'Productivity',
+    schema: {
+      required: ['api_key', 'base_id'],
+      properties: {
+        api_key: { type: 'string' as const, title: 'API Key', format: 'password' as const, secret: true },
+        base_id: { type: 'string' as const, title: 'Base ID' }
+      }
+    }
+  },
+  { 
+    id: 'monday', name: 'Monday.com', icon: 'check-square', type: 'source', description: 'Work OS platform', category: 'Productivity',
+    schema: {
+      required: ['api_token'],
+      properties: {
+        api_token: { type: 'string' as const, title: 'API Token', format: 'password' as const, secret: true }
+      }
+    }
+  },
+
+  // --- MORE FILES & STORAGE ---
+  { 
+    id: 'gcs', name: 'Google Cloud Storage', icon: 'cloud', type: 'source', description: 'GCP object storage', category: 'Files',
+    schema: {
+      required: ['bucket_name', 'credentials_json'],
+      properties: {
+        bucket_name: { type: 'string' as const, title: 'Bucket Name' },
+        credentials_json: { type: 'string' as const, title: 'Service Account JSON', format: 'json' as const },
+        prefix: { type: 'string' as const, title: 'Path Prefix (Optional)' }
+      }
+    }
+  },
+  { 
+    id: 'azure_blob', name: 'Azure Blob Storage', icon: 'cloud', type: 'source', description: 'Microsoft cloud storage', category: 'Files',
+    schema: {
+      required: ['account_name', 'account_key', 'container_name'],
+      properties: {
+        account_name: { type: 'string' as const, title: 'Storage Account Name' },
+        account_key: { type: 'string' as const, title: 'Account Key', format: 'password' as const, secret: true },
+        container_name: { type: 'string' as const, title: 'Container Name' }
+      }
+    }
+  },
+  { 
+    id: 'sftp', name: 'SFTP', icon: 'server', type: 'source', description: 'Secure file transfer', category: 'Files',
+    schema: {
+      required: ['host', 'username'],
+      properties: {
+        host: { type: 'string' as const, title: 'SFTP Host' },
+        port: { type: 'integer' as const, title: 'Port', default: 22 },
+        username: { type: 'string' as const, title: 'Username' },
+        password: { type: 'string' as const, title: 'Password', format: 'password' as const, secret: true },
+        path: { type: 'string' as const, title: 'Remote Path' }
+      }
+    }
+  },
+
+  // --- MORE FINANCE ---
+  { 
+    id: 'quickbooks', name: 'QuickBooks', icon: 'credit-card', type: 'source', description: 'Accounting software', category: 'Finance',
+    schema: {
+      required: ['realm_id', 'client_id', 'client_secret', 'refresh_token'],
+      properties: {
+        realm_id: { type: 'string' as const, title: 'Company ID / Realm ID' },
+        client_id: { type: 'string' as const, title: 'Client ID' },
+        client_secret: { type: 'string' as const, title: 'Client Secret', format: 'password' as const, secret: true },
+        refresh_token: { type: 'string' as const, title: 'Refresh Token', format: 'password' as const, secret: true },
+        is_sandbox: { type: 'boolean' as const, title: 'Sandbox Mode', default: false }
+      }
+    }
+  },
+  { 
+    id: 'xero', name: 'Xero', icon: 'credit-card', type: 'source', description: 'Cloud accounting', category: 'Finance',
+    schema: {
+      required: ['client_id', 'client_secret', 'tenant_id', 'refresh_token'],
+      properties: {
+        client_id: { type: 'string' as const, title: 'Client ID' },
+        client_secret: { type: 'string' as const, title: 'Client Secret', format: 'password' as const, secret: true },
+        tenant_id: { type: 'string' as const, title: 'Tenant ID' },
+        refresh_token: { type: 'string' as const, title: 'Refresh Token', format: 'password' as const, secret: true }
+      }
+    }
+  },
+
   // --- GENERIC ---
   { 
     id: 'rest_api', name: 'Generic REST API', icon: 'link', type: 'source', description: 'Configurable API source', category: 'Generic',
@@ -212,6 +404,17 @@ export const SOURCE_TYPES: ConnectorType[] = [
         endpoint_path: { type: 'string' as const, title: 'Resource Path' },
         auth_token: { type: 'string' as const, title: 'Bearer Token', format: 'password' as const, secret: true },
         pagination_type: { type: 'string' as const, title: 'Pagination', enum: ['page_number', 'limit_offset', 'cursor'] }
+      }
+    }
+  },
+  { 
+    id: 'csv', name: 'CSV / Parquet File', icon: 'file', type: 'source', description: 'Local or remote files', category: 'Generic',
+    schema: {
+      required: ['file_path'],
+      properties: {
+        file_path: { type: 'string' as const, title: 'File Path or URL' },
+        delimiter: { type: 'string' as const, title: 'Delimiter', default: ',' },
+        has_header: { type: 'boolean' as const, title: 'Has Header Row', default: true }
       }
     }
   },
@@ -272,6 +475,98 @@ export const DESTINATION_TYPES: ConnectorType[] = [
     }
   },
 
+  // --- MORE WAREHOUSES ---
+  { 
+    id: 'redshift', name: 'Amazon Redshift', icon: 'database', type: 'destination', description: 'AWS cloud DW', category: 'Warehouse',
+    schema: {
+      required: ['host', 'database', 'username', 'password'],
+      properties: {
+        host: { type: 'string' as const, title: 'Cluster Endpoint' },
+        port: { type: 'integer' as const, title: 'Port', default: 5439 },
+        database: { type: 'string' as const, title: 'Database' },
+        username: { type: 'string' as const, title: 'Username' },
+        password: { type: 'string' as const, title: 'Password', format: 'password' as const, secret: true },
+        schema: { type: 'string' as const, title: 'Schema', default: 'public' }
+      }
+    }
+  },
+  { 
+    id: 'databricks', name: 'Databricks', icon: 'layers', type: 'destination', description: 'Lakehouse platform', category: 'Warehouse',
+    schema: {
+      required: ['server_hostname', 'http_path', 'access_token'],
+      properties: {
+        server_hostname: { type: 'string' as const, title: 'Server Hostname' },
+        http_path: { type: 'string' as const, title: 'HTTP Path' },
+        access_token: { type: 'string' as const, title: 'Access Token', format: 'password' as const, secret: true },
+        catalog: { type: 'string' as const, title: 'Catalog', default: 'main' },
+        schema: { type: 'string' as const, title: 'Schema', default: 'default' }
+      }
+    }
+  },
+  { 
+    id: 'clickhouse', name: 'ClickHouse', icon: 'zap', type: 'destination', description: 'Fast analytics DB', category: 'Warehouse',
+    schema: {
+      required: ['host', 'database', 'username', 'password'],
+      properties: {
+        host: { type: 'string' as const, title: 'Host' },
+        port: { type: 'integer' as const, title: 'HTTP Port', default: 8123 },
+        database: { type: 'string' as const, title: 'Database' },
+        username: { type: 'string' as const, title: 'Username' },
+        password: { type: 'string' as const, title: 'Password', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'mysql_dw', name: 'MySQL', icon: 'database', type: 'destination', description: 'MySQL as warehouse', category: 'Warehouse',
+    schema: dbSchema(3306)
+  },
+
+  // --- MORE DATA LAKES ---
+  { 
+    id: 'azure_synapse', name: 'Azure Synapse', icon: 'cloud', type: 'destination', description: 'Microsoft analytics', category: 'Data Lake',
+    schema: {
+      required: ['server', 'database', 'username', 'password'],
+      properties: {
+        server: { type: 'string' as const, title: 'Server (workspace-name.sql.azuresynapse.net)' },
+        database: { type: 'string' as const, title: 'SQL Pool Database' },
+        username: { type: 'string' as const, title: 'Username' },
+        password: { type: 'string' as const, title: 'Password', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'gcs_dest', name: 'Google Cloud Storage', icon: 'cloud', type: 'destination', description: 'GCP object storage', category: 'Data Lake',
+    schema: {
+      required: ['bucket_name', 'credentials_json'],
+      properties: {
+        bucket_name: { type: 'string' as const, title: 'Bucket Name' },
+        credentials_json: { type: 'string' as const, title: 'Service Account JSON', format: 'json' as const },
+        prefix: { type: 'string' as const, title: 'Path Prefix', default: 'data/' }
+      }
+    }
+  },
+  { 
+    id: 'azure_blob_dest', name: 'Azure Blob Storage', icon: 'cloud', type: 'destination', description: 'Azure object storage', category: 'Data Lake',
+    schema: {
+      required: ['account_name', 'account_key', 'container_name'],
+      properties: {
+        account_name: { type: 'string' as const, title: 'Storage Account' },
+        account_key: { type: 'string' as const, title: 'Account Key', format: 'password' as const, secret: true },
+        container_name: { type: 'string' as const, title: 'Container' }
+      }
+    }
+  },
+  { 
+    id: 'motherduck', name: 'MotherDuck', icon: 'cloud', type: 'destination', description: 'Serverless DuckDB', category: 'Data Lake',
+    schema: {
+      required: ['api_key'],
+      properties: {
+        api_key: { type: 'string' as const, title: 'MotherDuck Token', format: 'password' as const, secret: true },
+        database: { type: 'string' as const, title: 'Database Name', default: 'my_db' }
+      }
+    }
+  },
+
   // --- VECTOR STORES (AI) ---
   { 
     id: 'weaviate', name: 'Weaviate', icon: 'brain', type: 'destination', description: 'Vector Search Engine', category: 'Vector DB',
@@ -280,6 +575,40 @@ export const DESTINATION_TYPES: ConnectorType[] = [
       properties: {
         url: { type: 'string' as const, title: 'Weaviate URL' },
         api_key: { type: 'string' as const, title: 'API Key', format: 'password' as const, secret: true }
+      }
+    }
+  },
+  { 
+    id: 'qdrant', name: 'Qdrant', icon: 'brain', type: 'destination', description: 'Vector similarity search', category: 'Vector DB',
+    schema: {
+      required: ['url'],
+      properties: {
+        url: { type: 'string' as const, title: 'Qdrant URL' },
+        api_key: { type: 'string' as const, title: 'API Key (Optional)', format: 'password' as const, secret: true },
+        collection_name: { type: 'string' as const, title: 'Collection Name', default: 'documents' }
+      }
+    }
+  },
+  { 
+    id: 'pinecone', name: 'Pinecone', icon: 'brain', type: 'destination', description: 'Managed vector DB', category: 'Vector DB',
+    schema: {
+      required: ['api_key', 'environment', 'index_name'],
+      properties: {
+        api_key: { type: 'string' as const, title: 'API Key', format: 'password' as const, secret: true },
+        environment: { type: 'string' as const, title: 'Environment' },
+        index_name: { type: 'string' as const, title: 'Index Name' }
+      }
+    }
+  },
+
+  // --- FILE-BASED DESTINATIONS ---
+  { 
+    id: 'filesystem', name: 'Local Filesystem', icon: 'folder', type: 'destination', description: 'Save to local disk', category: 'Files',
+    schema: {
+      required: ['base_path'],
+      properties: {
+        base_path: { type: 'string' as const, title: 'Base Directory Path', default: './data_output' },
+        file_format: { type: 'string' as const, title: 'Format', enum: ['parquet', 'jsonl', 'csv'], default: 'parquet' }
       }
     }
   },

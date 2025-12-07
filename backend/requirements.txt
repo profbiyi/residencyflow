@@ -16,3 +16,5 @@ pyarrow>=14.0.0
 snowflake-connector-python
 dlt[snowflake]
 boto3
+pymysql==1.1.0
+pymongo==4.6.1

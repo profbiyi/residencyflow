@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ConnectorType, ConnectorInstance, JsonSchemaProperty } from '../types';
 import { ICON_MAP, SOURCE_TYPES, DESTINATION_TYPES } from '../constants';
 import { Plus, Search, CheckCircle, MoreVertical, Trash2, Edit2, Loader2, AlertCircle, Eye, EyeOff, Lock, Key, Globe, Database, Server, Info, Code, Hash, Type } from 'lucide-react';
+import { api } from '../services/api';
 
 interface Props {
   type: 'source' | 'destination';
@@ -71,27 +72,37 @@ export const ConnectorManager: React.FC<Props> = ({ type, existing, onAdd, onUpd
     setTestMessage('');
   };
 
-  const handleTestConnection = () => {
+  const handleTestConnection = async () => {
     if (!selectedType) return;
     
+    // Client-side validation first
+    const missingFields = selectedType.schema.required.filter(key => 
+        !configValues[key] || configValues[key].toString().trim() === ''
+    );
+    
+    if (missingFields.length > 0) {
+        setTestStatus('failed');
+        setTestMessage(`Missing required fields: ${missingFields.join(', ')}`);
+        return;
+    }
+    
+    // Real backend test
     setTestStatus('testing');
-    setTestMessage('Validating schema and simulating connection...');
-
-    // Simulate backend delay and validation
-    setTimeout(() => {
-        // Simple client-side validation based on "Required" fields in schema
-        const missingFields = selectedType.schema.required.filter(key => 
-            !configValues[key] || configValues[key].toString().trim() === ''
-        );
-
-        if (missingFields.length > 0) {
-            setTestStatus('failed');
-            setTestMessage(`Missing required fields: ${missingFields.join(', ')}`);
-        } else {
+    setTestMessage('Testing connection to data source...');
+    
+    try {
+        const result = await api.connectors.test(selectedType.id, configValues);
+        if (result.success) {
             setTestStatus('success');
-            setTestMessage('Configuration schema verified. Credentials accepted (Simulated).');
+            setTestMessage(result.message);
+        } else {
+            setTestStatus('failed');
+            setTestMessage(result.message);
         }
-    }, 1200);
+    } catch (error) {
+        setTestStatus('failed');
+        setTestMessage(`Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const handleSave = () => {
