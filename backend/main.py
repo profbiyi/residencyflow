@@ -227,10 +227,23 @@ def run_pipeline(id: str, current_user: models.User = Depends(get_current_user),
 
 @app.get("/connectors")
 def get_connectors(type: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(models.Connector).filter(
+    connectors = db.query(models.Connector).filter(
         models.Connector.organization_id == current_user.organization_id,
         models.Connector.connector_type == type
     ).all()
+    
+    # Format for frontend
+    return [{
+        "id": c.id,
+        "name": c.name,
+        "typeId": c.type_id,
+        "connectorType": c.connector_type,
+        "status": c.status,
+        "configuration": c.configuration,
+        "region": c.region,
+        "organizationId": c.organization_id,
+        "createdBy": c.created_by
+    } for c in connectors]
 
 @app.post("/connectors")
 def create_connector(conn: schemas.ConnectorCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -242,7 +255,20 @@ def create_connector(conn: schemas.ConnectorCreate, current_user: models.User = 
     )
     db.add(new_c)
     db.commit()
-    return new_c
+    db.refresh(new_c)
+    
+    # Format for frontend
+    return {
+        "id": new_c.id,
+        "name": new_c.name,
+        "typeId": new_c.type_id,
+        "connectorType": new_c.connector_type,
+        "status": new_c.status,
+        "configuration": new_c.configuration,
+        "region": new_c.region,
+        "organizationId": new_c.organization_id,
+        "createdBy": new_c.created_by
+    }
 
 @app.post("/connectors/test")
 def test_connection(data: dict):
