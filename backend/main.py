@@ -135,7 +135,18 @@ def health_check():
 # --- SUPER ADMIN ENDPOINTS (The "Agba" Features) ---
 @app.get("/admin/organizations")
 def list_orgs(current_user: models.User = Depends(get_super_admin), db: Session = Depends(get_db)):
-    return db.query(models.Organization).all()
+    orgs = db.query(models.Organization).all()
+    # Format for frontend
+    return [{
+        "id": org.id,
+        "name": org.name,
+        "slug": org.slug,
+        "createdAt": org.created_at.isoformat() if org.created_at else None,
+        "status": org.status,
+        "ownerEmail": org.owner_email,
+        "plan": org.plan,
+        "billingCycle": "Monthly"  # Default value
+    } for org in orgs]
 
 @app.post("/admin/organizations")
 def onboard_tenant(org_data: schemas.OrgCreate, current_user: models.User = Depends(get_super_admin), db: Session = Depends(get_db)):
@@ -165,7 +176,18 @@ def onboard_tenant(org_data: schemas.OrgCreate, current_user: models.User = Depe
     )
     db.add(new_user)
     db.commit()
-    return new_org
+    
+    # Format for frontend
+    return {
+        "id": new_org.id,
+        "name": new_org.name,
+        "slug": new_org.slug,
+        "createdAt": new_org.created_at.isoformat() if new_org.created_at else None,
+        "status": new_org.status,
+        "ownerEmail": new_org.owner_email,
+        "plan": new_org.plan,
+        "billingCycle": "Monthly"
+    }
 
 @app.patch("/admin/organizations/{org_id}/plan")
 def update_plan(org_id: str, plan_data: schemas.PlanUpdate, current_user: models.User = Depends(get_super_admin), db: Session = Depends(get_db)):
