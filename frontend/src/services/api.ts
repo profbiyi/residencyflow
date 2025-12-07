@@ -7,11 +7,10 @@ import { Pipeline, ConnectorInstance, User, TeamMember, AuditLog, Organization, 
 const API_URL = import.meta.env.VITE_API_URL || '';
 const IS_LIVE = !!API_URL;
 
-const headers = {
+const getHeaders = () => ({
   'Content-Type': 'application/json',
-  // In a real app, you would retrieve the token from localStorage
   'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
-};
+});
 
 export const api = {
   system: {
@@ -58,7 +57,7 @@ export const api = {
   pipelines: {
     list: async (): Promise<Pipeline[]> => {
       if (IS_LIVE) {
-         const res = await fetch(`${API_URL}/pipelines`, { headers });
+         const res = await fetch(`${API_URL}/pipelines`, { headers: getHeaders() });
          return await res.json();
       }
       return MOCK_PIPELINES;
@@ -67,7 +66,7 @@ export const api = {
       if (IS_LIVE) {
          const res = await fetch(`${API_URL}/pipelines`, {
             method: 'POST',
-            headers,
+            headers: getHeaders(),
             body: JSON.stringify(pipeline)
          });
          return await res.json();
@@ -76,7 +75,7 @@ export const api = {
     },
     run: async (id: string): Promise<boolean> => {
        if (IS_LIVE) {
-          const res = await fetch(`${API_URL}/pipelines/${id}/run`, { method: 'POST', headers });
+          const res = await fetch(`${API_URL}/pipelines/${id}/run`, { method: 'POST', headers: getHeaders() });
           return res.ok;
        }
        return true;
@@ -86,7 +85,7 @@ export const api = {
   connectors: {
     list: async (type: 'source'|'destination'): Promise<ConnectorInstance[]> => {
       if (IS_LIVE) {
-        const res = await fetch(`${API_URL}/connectors?type=${type}`, { headers });
+        const res = await fetch(`${API_URL}/connectors?type=${type}`, { headers: getHeaders() });
         return await res.json();
       }
       return type === 'source' ? MOCK_SOURCES : MOCK_DESTINATIONS;
@@ -95,7 +94,7 @@ export const api = {
       if (IS_LIVE) {
          const res = await fetch(`${API_URL}/connectors`, {
             method: 'POST',
-            headers,
+            headers: getHeaders(),
             body: JSON.stringify(connector)
          });
          return await res.json();
@@ -106,7 +105,7 @@ export const api = {
         if (IS_LIVE) {
             const res = await fetch(`${API_URL}/connectors/test`, {
                 method: 'POST',
-                headers,
+                headers: getHeaders(),
                 body: JSON.stringify({ typeId, config })
             });
             return await res.json();
@@ -118,7 +117,7 @@ export const api = {
   admin: {
     listOrganizations: async (): Promise<Organization[]> => {
        if (IS_LIVE) {
-          const res = await fetch(`${API_URL}/admin/organizations`, { headers });
+          const res = await fetch(`${API_URL}/admin/organizations`, { headers: getHeaders() });
           return await res.json();
        }
        return MOCK_ORGANIZATIONS;
@@ -127,7 +126,7 @@ export const api = {
        if (IS_LIVE) {
           const res = await fetch(`${API_URL}/admin/organizations`, {
              method: 'POST',
-             headers,
+             headers: getHeaders(),
              body: JSON.stringify(orgData)
           });
           return await res.json();
@@ -146,7 +145,7 @@ export const api = {
        if (IS_LIVE) {
           await fetch(`${API_URL}/admin/organizations/${orgId}/plan`, {
              method: 'PATCH',
-             headers,
+             headers: getHeaders(),
              body: JSON.stringify({ plan })
           });
        }
