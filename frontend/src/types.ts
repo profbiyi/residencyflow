@@ -56,7 +56,7 @@ export interface Organization {
 
 export interface User {
   id: string;
-  organizationId: string; // Links user to an organization
+  organizationId: string | null; // Links user to an organization (null for SuperAdmin)
   name: string;
   companyName: string; // Display name for UI
   email: string;
