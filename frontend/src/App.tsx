@@ -70,7 +70,7 @@ function App() {
   const myTeam = team.filter(t => t.organizationId === user?.organizationId);
 
   const logAction = (action: string, target: string) => {
-    if (!user) return;
+    if (!user || !user.organizationId) return; // SuperAdmin doesn't log actions
     const newLog: AuditLog = {
       id: `log-${Date.now()}`,
       action,
@@ -165,7 +165,7 @@ function App() {
   };
 
   const handleCreatePipeline = async (newPipeline: Pipeline) => {
-    if (!user) return;
+    if (!user || !user.organizationId) return; // SuperAdmin can't create pipelines directly
     const p = { ...newPipeline, status: PipelineStatus.Running, organizationId: user.organizationId, createdBy: user.id };
     const created = await api.pipelines.create(p);
     setPipelines([created, ...pipelines]);
@@ -176,7 +176,7 @@ function App() {
   };
 
   const handleAddConnector = async (c: ConnectorInstance, type: 'source' | 'destination') => {
-    if (!user) return;
+    if (!user || !user.organizationId) return; // SuperAdmin can't create connectors directly
     const connector = { ...c, organizationId: user.organizationId, createdBy: user.id };
     const created = await api.connectors.create(connector);
     

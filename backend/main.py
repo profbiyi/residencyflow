@@ -77,11 +77,22 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     
     access_token = create_access_token(data={"sub": user.email})
     refresh_token = create_refresh_token(data={"sub": user.email})
+    
+    # Format user object for frontend compatibility
+    user_data = {
+        "id": user.id,
+        "email": user.email,
+        "name": user.full_name,
+        "companyName": user.full_name,  # Using full_name as companyName for now
+        "organizationId": user.organization_id,
+        "role": user.role
+    }
+    
     return {
         "access_token": access_token, 
         "refresh_token": refresh_token,
         "token_type": "bearer", 
-        "user": user
+        "user": user_data
     }
 
 @app.post("/auth/refresh")
