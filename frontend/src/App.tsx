@@ -39,6 +39,26 @@ function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(MOCK_AUDIT_LOGS);
   const [runHistory, setRunHistory] = useState<RunHistory[]>(MOCK_RUN_HISTORY);
   
+  // SESSION RESTORATION: Restore user from localStorage on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      try {
+        const userProfile = JSON.parse(savedUser);
+        setUser(userProfile);
+        if (userProfile.role === 'SuperAdmin') {
+          setActiveView('super-admin');
+        } else {
+          setActiveView('dashboard');
+        }
+      } catch (e) {
+        console.error('Failed to restore user session', e);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+      }
+    }
+  }, []);
+  
   // HYDRATION: If Live, load from backend
   useEffect(() => {
      if (api.system.isLive()) {
@@ -139,6 +159,7 @@ function App() {
   const handleLoginAuth = async (email: string, pass: string): Promise<void> => {
     const userProfile = await api.auth.login(email, pass);
     setUser(userProfile);
+    localStorage.setItem('user', JSON.stringify(userProfile));
     if (userProfile.role === 'SuperAdmin') {
         setActiveView('super-admin');
     } else {
@@ -161,6 +182,7 @@ function App() {
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setActiveView('landing');
   };
 
