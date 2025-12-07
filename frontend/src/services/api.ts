@@ -4,7 +4,7 @@ import { Pipeline, ConnectorInstance, User, TeamMember, AuditLog, Organization, 
 
 // ENVIRONMENT CONFIGURATION
 // In Docker/Prod, this variable will be set. In Studio/Local demo, it is undefined.
-const API_URL = process.env.REACT_APP_API_URL || '';
+const API_URL = import.meta.env.VITE_API_URL || '';
 const IS_LIVE = !!API_URL;
 
 const headers = {
