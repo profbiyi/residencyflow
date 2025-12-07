@@ -32,12 +32,12 @@ function App() {
   const [showToast, setShowToast] = useState<string | null>(null);
 
   // Global Data State
-  const [pipelines, setPipelines] = useState<Pipeline[]>(MOCK_PIPELINES);
-  const [sources, setSources] = useState<ConnectorInstance[]>(MOCK_SOURCES);
-  const [destinations, setDestinations] = useState<ConnectorInstance[]>(MOCK_DESTINATIONS);
-  const [team, setTeam] = useState<TeamMember[]>(MOCK_TEAM);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(MOCK_AUDIT_LOGS);
-  const [runHistory, setRunHistory] = useState<RunHistory[]>(MOCK_RUN_HISTORY);
+  const [pipelines, setPipelines] = useState<Pipeline[]>(api.system.isLive() ? [] : MOCK_PIPELINES);
+  const [sources, setSources] = useState<ConnectorInstance[]>(api.system.isLive() ? [] : MOCK_SOURCES);
+  const [destinations, setDestinations] = useState<ConnectorInstance[]>(api.system.isLive() ? [] : MOCK_DESTINATIONS);
+  const [team, setTeam] = useState<TeamMember[]>(api.system.isLive() ? [] : MOCK_TEAM);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(api.system.isLive() ? [] : MOCK_AUDIT_LOGS);
+  const [runHistory, setRunHistory] = useState<RunHistory[]>(api.system.isLive() ? [] : MOCK_RUN_HISTORY);
   
   // SESSION RESTORATION: Restore user from localStorage on mount
   useEffect(() => {

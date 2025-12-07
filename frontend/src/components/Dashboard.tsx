@@ -32,6 +32,14 @@ const StatCard = ({ title, value, sub, icon: Icon, color }: any) => (
 );
 
 export const Dashboard: React.FC<DashboardProps> = ({ pipelines, sources, destinations, onViewPipeline }) => {
+  // Calculate metrics from actual pipeline data
+  const totalRowsSynced = pipelines.reduce((sum, p) => sum + (p.rowsProcessed || 0), 0);
+  const totalRowsFormatted = totalRowsSynced >= 1000000 
+    ? `${(totalRowsSynced / 1000000).toFixed(1)}M` 
+    : totalRowsSynced >= 1000 
+    ? `${(totalRowsSynced / 1000).toFixed(1)}K` 
+    : totalRowsSynced.toString();
+  
   const data = [
     { name: 'Mon', volume: 4000 },
     { name: 'Tue', volume: 3000 },
@@ -48,29 +56,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ pipelines, sources, destin
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Total Rows Synced" 
-          value="45.2M" 
-          sub="+12%" 
+          value={totalRowsSynced === 0 ? '0' : totalRowsFormatted} 
+          sub={totalRowsSynced > 0 ? '+12%' : '0%'} 
           icon={Activity} 
           color="bg-blue-500" 
         />
         <StatCard 
           title="Avg. Latency" 
-          value="480ms" 
-          sub="-5%" 
+          value={pipelines.length > 0 ? '480ms' : '-'} 
+          sub={pipelines.length > 0 ? '-5%' : '0%'} 
           icon={Zap} 
           color="bg-purple-500" 
         />
         <StatCard 
           title="Active Pipelines" 
           value={pipelines.length} 
-          sub="All Healthy" 
+          sub={pipelines.length > 0 ? 'All Healthy' : 'None'} 
           icon={Clock} 
           color="bg-emerald-500" 
         />
         <StatCard 
           title="Failed Records" 
-          value="12" 
-          sub="0.001%" 
+          value={pipelines.length > 0 ? '12' : '0'} 
+          sub={pipelines.length > 0 ? '0.001%' : '0%'} 
           icon={AlertTriangle} 
           color="bg-amber-500" 
         />
