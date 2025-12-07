@@ -1,0 +1,5 @@
+{
+  "name": "Copy of ResidencyFlow",
+  "description": "A compliance-first ETL platform for European and African enterprises. Orchestrates dlt, DuckDB, and Prefect with a focus on data residency and AI-driven insights.",
+  "requestFramePermissions": []
+}
