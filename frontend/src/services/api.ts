@@ -124,10 +124,18 @@ export const api = {
     },
     createOrganization: async (orgData: any): Promise<Organization> => {
        if (IS_LIVE) {
+          // Convert camelCase to snake_case for backend
+          const payload = {
+            name: orgData.name,
+            admin_email: orgData.adminEmail,
+            admin_name: orgData.adminName,
+            password: orgData.password,
+            plan: orgData.plan
+          };
           const res = await fetch(`${API_URL}/admin/organizations`, {
              method: 'POST',
              headers: getHeaders(),
-             body: JSON.stringify(orgData)
+             body: JSON.stringify(payload)
           });
           return await res.json();
        }
