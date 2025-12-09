@@ -206,7 +206,7 @@ function App() {
     logAction('Create Pipeline', newPipeline.name);
     setShowWizard(false);
     triggerToast("Pipeline Deployed & Started");
-    setActiveView('dashboard');
+    setActiveView('pipelines'); // Stay on pipelines page
   };
 
   const handleAddConnector = async (c: ConnectorInstance, type: 'source' | 'destination') => {
