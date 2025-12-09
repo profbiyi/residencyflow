@@ -317,6 +317,20 @@ def create_connector(conn: schemas.ConnectorCreate, current_user: models.User = 
         "createdBy": new_c.created_by
     }
 
+@app.delete("/connectors/{connector_id}")
+def delete_connector(connector_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    connector = db.query(models.Connector).filter(
+        models.Connector.id == connector_id,
+        models.Connector.organization_id == current_user.organization_id
+    ).first()
+    
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    
+    db.delete(connector)
+    db.commit()
+    return {"status": "deleted"}
+
 @app.post("/connectors/test")
 def test_connection(data: dict):
     """
