@@ -77,10 +77,21 @@ export const api = {
     },
     create: async (pipeline: Pipeline): Promise<Pipeline> => {
       if (IS_LIVE) {
+         // Convert camelCase to snake_case for backend
+         const payload = {
+           name: pipeline.name,
+           source_id: pipeline.sourceId,
+           destination_id: pipeline.destinationId,
+           sync_mode: pipeline.syncMode,
+           frequency: pipeline.frequency,
+           schema_policy: pipeline.schemaPolicy || 'evolve',
+           notification_config: pipeline.notifications || null,
+           transformation_config: pipeline.transformation || null
+         };
          const res = await fetch(`${API_URL}/pipelines`, {
             method: 'POST',
             headers: getHeaders(),
-            body: JSON.stringify(pipeline)
+            body: JSON.stringify(payload)
          });
          return await res.json();
       }
