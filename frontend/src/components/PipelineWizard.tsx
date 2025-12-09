@@ -206,35 +206,93 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <div className="space-y-2 pr-2">
-                  {availableResources.map((resource, idx) => (
-                    <div 
-                      key={resource.name}
-                      onClick={() => {
-                        const updated = [...availableResources];
-                        updated[idx].selected = !updated[idx].selected;
-                        setAvailableResources(updated);
-                      }}
-                      className={`cursor-pointer p-4 rounded-lg border transition-all ${
-                        resource.selected 
-                          ? 'bg-blue-600/10 border-blue-500' 
-                          : 'bg-slate-900 border-slate-800 hover:border-slate-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input 
-                          type="checkbox" 
-                          checked={resource.selected} 
-                          readOnly
-                          className="rounded bg-slate-800 border-slate-600 text-blue-500"
-                        />
-                        <Database size={16} className="text-slate-400" />
-                        <span className="text-white font-medium">{resource.name}</span>
-                        <span className="text-xs text-slate-500 ml-auto capitalize">{resource.type}</span>
+                {/* Check if we have multi-schema resources (schema.table format) */}
+                {availableResources.some((r: any) => r.schema) ? (
+                  /* Multi-schema view: Group by schema */
+                  <div className="space-y-4 pr-2">
+                    {(() => {
+                      // Group resources by schema
+                      const bySchema: Record<string, any[]> = {};
+                      availableResources.forEach((resource: any) => {
+                        const schema = resource.schema || 'public';
+                        if (!bySchema[schema]) bySchema[schema] = [];
+                        bySchema[schema].push(resource);
+                      });
+                      
+                      return Object.entries(bySchema).map(([schema, tables]) => (
+                        <div key={schema} className="border border-slate-800 rounded-lg overflow-hidden">
+                          <div className="bg-slate-950 px-4 py-2 border-b border-slate-800">
+                            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wide">
+                              {schema} <span className="text-slate-500 font-normal">({tables.length} tables)</span>
+                            </h3>
+                          </div>
+                          <div className="p-2 space-y-1">
+                            {tables.map((resource: any, idx: number) => {
+                              const globalIdx = availableResources.indexOf(resource);
+                              return (
+                                <div
+                                  key={resource.name}
+                                  onClick={() => {
+                                    const updated = [...availableResources];
+                                    updated[globalIdx].selected = !updated[globalIdx].selected;
+                                    setAvailableResources(updated);
+                                  }}
+                                  className={`cursor-pointer p-3 rounded border transition-all ${
+                                    resource.selected
+                                      ? 'bg-blue-600/10 border-blue-500'
+                                      : 'bg-slate-900/50 border-slate-800/50 hover:border-slate-600'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={resource.selected}
+                                      readOnly
+                                      className="rounded bg-slate-800 border-slate-600 text-blue-500"
+                                    />
+                                    <Database size={14} className="text-slate-400" />
+                                    <span className="text-white text-sm">{resource.table}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                ) : (
+                  /* Single schema view: Simple list */
+                  <div className="space-y-2 pr-2">
+                    {availableResources.map((resource, idx) => (
+                      <div
+                        key={resource.name}
+                        onClick={() => {
+                          const updated = [...availableResources];
+                          updated[idx].selected = !updated[idx].selected;
+                          setAvailableResources(updated);
+                        }}
+                        className={`cursor-pointer p-4 rounded-lg border transition-all ${
+                          resource.selected
+                            ? 'bg-blue-600/10 border-blue-500'
+                            : 'bg-slate-900 border-slate-800 hover:border-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={resource.selected}
+                            readOnly
+                            className="rounded bg-slate-800 border-slate-600 text-blue-500"
+                          />
+                          <Database size={16} className="text-slate-400" />
+                          <span className="text-white font-medium">{resource.name}</span>
+                          <span className="text-xs text-slate-500 ml-auto capitalize">{resource.type}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             

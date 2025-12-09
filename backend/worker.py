@@ -37,14 +37,42 @@ def load_source_dynamically(conn, selected_resources=None):
          creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
          module = importlib.import_module("dlt.sources.sql_database")
          
-         # Get schema from connector config (defaults to 'public')
-         schema_name = config.get('schema', 'public')
+         # Get schema from connector config
+         schema_filter = config.get('schema', '').strip()
          
-         # Build dlt source with schema and optional table selection
+         # Check if we have multi-schema table names (format: schema.table)
+         if selected_resources and any('.' in r for r in selected_resources):
+             # Multi-schema mode: group tables by schema
+             schema_tables = {}
+             for resource in selected_resources:
+                 if '.' in resource:
+                     schema, table = resource.split('.', 1)
+                     if schema not in schema_tables:
+                         schema_tables[schema] = []
+                     schema_tables[schema].append(table)
+                 else:
+                     # Fallback: use default schema
+                     schema = schema_filter or 'public'
+                     if schema not in schema_tables:
+                         schema_tables[schema] = []
+                     schema_tables[schema].append(resource)
+             
+             # Load each schema's tables separately and combine
+             # dlt will handle this via multiple resource definitions
+             sources = []
+             for schema, tables in schema_tables.items():
+                 src = module.sql_database(credentials=creds, schema=schema, table_names=tables)
+                 sources.append(src)
+             
+             # Return first source (dlt can combine multiple sources via pipeline.run)
+             # For now, we'll combine them in the pipeline execution
+             return sources[0] if len(sources) == 1 else sources
+         
+         # Single schema mode
          kwargs = {'credentials': creds}
          
-         if schema_name and schema_name != 'public':
-             kwargs['schema'] = schema_name
+         if schema_filter:
+             kwargs['schema'] = schema_filter
          
          if selected_resources:
              kwargs['table_names'] = selected_resources

@@ -11,7 +11,7 @@ const dbSchema = (portDefault: number) => ({
     database: { type: 'string' as const, title: 'Database Name' },
     username: { type: 'string' as const, title: 'Username' },
     password: { type: 'string' as const, title: 'Password', format: 'password' as const, secret: true },
-    schema: { type: 'string' as const, title: 'Schema', default: 'public', description: 'Optional schema filter' }
+    schema: { type: 'string' as const, title: 'Schema (Optional)', description: 'Leave blank to discover all schemas, or specify one schema to filter' }
   }
 });
 

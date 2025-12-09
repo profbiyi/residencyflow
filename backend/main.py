@@ -357,26 +357,76 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
             driver = "postgresql" if 'postgres' in type_id else "mysql+pymysql"
             creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
             
-            # Get schema from config (defaults to 'public' if not specified)
-            schema_name = config.get('schema', 'public')
+            # Get schema from config
+            schema_filter = config.get('schema', '').strip()
             
             # Use dlt to discover schema
             module = importlib.import_module("dlt.sources.sql_database")
             
-            # Pass schema parameter to dlt
-            if schema_name and schema_name != 'public':
-                source = module.sql_database(credentials=creds, schema=schema_name)
+            if schema_filter:
+                # User specified a specific schema - only introspect that one
+                source = module.sql_database(credentials=creds, schema=schema_filter)
+                schema_mode = f"single ({schema_filter})"
             else:
-                # Default: introspect all schemas or just public
-                source = module.sql_database(credentials=creds)
+                # No schema specified - discover ALL schemas (multi-schema mode)
+                # For Postgres, dlt can introspect across all schemas
+                if 'postgres' in type_id:
+                    # Get all non-system schemas
+                    import psycopg2
+                    conn = psycopg2.connect(
+                        host=config.get('host'),
+                        port=config.get('port', 5432),
+                        database=config.get('database'),
+                        user=config.get('username'),
+                        password=config.get('password')
+                    )
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT schema_name 
+                        FROM information_schema.schemata 
+                        WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                        ORDER BY schema_name
+                    """)
+                    all_schemas = [row[0] for row in cursor.fetchall()]
+                    cursor.close()
+                    conn.close()
+                    
+                    # Introspect each schema and combine results
+                    all_resources = []
+                    for schema in all_schemas:
+                        try:
+                            source = module.sql_database(credentials=creds, schema=schema)
+                            for table_name in source.resources.keys():
+                                all_resources.append({
+                                    "name": f"{schema}.{table_name}",  # Fully qualified name
+                                    "type": "table",
+                                    "schema": schema,
+                                    "table": table_name,
+                                    "selected": True
+                                })
+                        except Exception as e:
+                            print(f"Warning: Could not introspect schema {schema}: {e}")
+                    
+                    return {
+                        "connector_id": connector_id,
+                        "connector_type": type_id,
+                        "resources": all_resources,
+                        "source_type": "database",
+                        "schema_mode": "multi",
+                        "available_schemas": all_schemas
+                    }
+                else:
+                    # MySQL: default to single database introspection
+                    source = module.sql_database(credentials=creds)
+                    schema_mode = "default"
             
-            # dlt source has resources - each resource is a table
+            # Single schema mode
             resources = []
             for resource_name in source.resources.keys():
                 resources.append({
                     "name": resource_name,
                     "type": "table",
-                    "selected": True  # Default to selected
+                    "selected": True
                 })
             
             return {
@@ -384,7 +434,7 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
                 "connector_type": type_id,
                 "resources": resources,
                 "source_type": "database",
-                "schema_filter": schema_name  # Let frontend know which schema was used
+                "schema_mode": schema_mode
             }
         
         # For API sources (HubSpot, Salesforce, etc.), dlt also discovers resources
