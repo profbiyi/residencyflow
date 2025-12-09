@@ -12,6 +12,18 @@ const getHeaders = () => ({
   'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
 });
 
+// Global error handler for 401 responses
+const handleResponse = async (response: Response) => {
+  if (response.status === 401) {
+    // Token expired or invalid - logout user
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/';
+    throw new Error('Session expired. Please login again.');
+  }
+  return response;
+};
+
 export const api = {
   system: {
     isLive: () => IS_LIVE,
@@ -58,6 +70,7 @@ export const api = {
     list: async (): Promise<Pipeline[]> => {
       if (IS_LIVE) {
          const res = await fetch(`${API_URL}/pipelines`, { headers: getHeaders() });
+         await handleResponse(res);
          return await res.json();
       }
       return MOCK_PIPELINES;
@@ -86,6 +99,7 @@ export const api = {
     list: async (type: 'source'|'destination'): Promise<ConnectorInstance[]> => {
       if (IS_LIVE) {
         const res = await fetch(`${API_URL}/connectors?type=${type}`, { headers: getHeaders() });
+        await handleResponse(res);
         return await res.json();
       }
       return type === 'source' ? MOCK_SOURCES : MOCK_DESTINATIONS;
@@ -126,6 +140,7 @@ export const api = {
     listOrganizations: async (): Promise<Organization[]> => {
        if (IS_LIVE) {
           const res = await fetch(`${API_URL}/admin/organizations`, { headers: getHeaders() });
+          await handleResponse(res);
           return await res.json();
        }
        return MOCK_ORGANIZATIONS;
