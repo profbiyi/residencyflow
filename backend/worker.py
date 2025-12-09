@@ -33,9 +33,10 @@ def load_source_dynamically(conn, selected_resources=None):
     config = conn.configuration
     
     if type_id == 'postgres' or type_id == 'mysql':
+         from dlt.sources.sql_database import sql_database
+         
          driver = "postgresql" if type_id == 'postgres' else "mysql+pymysql"
          creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
-         module = importlib.import_module("dlt.sources.sql_database")
          
          # Get schema from connector config
          schema_filter = config.get('schema', '').strip()
@@ -61,7 +62,7 @@ def load_source_dynamically(conn, selected_resources=None):
              # dlt will handle this via multiple resource definitions
              sources = []
              for schema, tables in schema_tables.items():
-                 src = module.sql_database(credentials=creds, schema=schema, table_names=tables)
+                 src = sql_database(credentials=creds, schema=schema, table_names=tables)
                  sources.append(src)
              
              # Return first source (dlt can combine multiple sources via pipeline.run)
@@ -77,7 +78,7 @@ def load_source_dynamically(conn, selected_resources=None):
          if selected_resources:
              kwargs['table_names'] = selected_resources
          
-         return module.sql_database(**kwargs)
+         return sql_database(**kwargs)
     
     if type_id in SOURCE_REGISTRY:
         module = importlib.import_module(SOURCE_REGISTRY[type_id])

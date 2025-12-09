@@ -354,18 +354,17 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
         
         # For SQL databases, use dlt's sql_database source
         if type_id in ['postgres', 'mysql', 'postgres_dw', 'mysql_dw']:
+            from dlt.sources.sql_database import sql_database
+            
             driver = "postgresql" if 'postgres' in type_id else "mysql+pymysql"
             creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
             
             # Get schema from config
             schema_filter = config.get('schema', '').strip()
             
-            # Use dlt to discover schema
-            module = importlib.import_module("dlt.sources.sql_database")
-            
             if schema_filter:
                 # User specified a specific schema - only introspect that one
-                source = module.sql_database(credentials=creds, schema=schema_filter)
+                source = sql_database(credentials=creds, schema=schema_filter)
                 schema_mode = f"single ({schema_filter})"
             else:
                 # No schema specified - discover ALL schemas (multi-schema mode)
@@ -395,7 +394,7 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
                     all_resources = []
                     for schema in all_schemas:
                         try:
-                            source = module.sql_database(credentials=creds, schema=schema)
+                            source = sql_database(credentials=creds, schema=schema)
                             for table_name in source.resources.keys():
                                 all_resources.append({
                                     "name": f"{schema}.{table_name}",  # Fully qualified name
@@ -417,7 +416,7 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
                     }
                 else:
                     # MySQL: default to single database introspection
-                    source = module.sql_database(credentials=creds)
+                    source = sql_database(credentials=creds)
                     schema_mode = "default"
             
             # Single schema mode
