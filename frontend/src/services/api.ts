@@ -92,10 +92,18 @@ export const api = {
     },
     create: async (connector: ConnectorInstance): Promise<ConnectorInstance> => {
       if (IS_LIVE) {
+         // Convert camelCase to snake_case for backend
+         const payload = {
+           name: connector.name,
+           type_id: connector.typeId,
+           connector_type: connector.connectorType,
+           configuration: connector.configuration,
+           region: connector.region
+         };
          const res = await fetch(`${API_URL}/connectors`, {
             method: 'POST',
             headers: getHeaders(),
-            body: JSON.stringify(connector)
+            body: JSON.stringify(payload)
          });
          return await res.json();
       }

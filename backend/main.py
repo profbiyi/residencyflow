@@ -20,6 +20,29 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title="ResidencyFlow API")
 
+@app.on_event("startup")
+async def startup_event():
+    """Run database migrations on startup"""
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # Add region column if it doesn't exist
+            conn.execute(text("""
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='connectors' AND column_name='region'
+                    ) THEN
+                        ALTER TABLE connectors ADD COLUMN region VARCHAR;
+                    END IF;
+                END $$;
+            """))
+            conn.commit()
+        print("✅ Database migrations applied")
+    except Exception as e:
+        print(f"⚠️  Migration warning: {e}")
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,

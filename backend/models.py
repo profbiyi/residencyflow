@@ -32,6 +32,7 @@ class Connector(Base):
     connector_type = Column(String) 
     configuration = Column(JSON) 
     status = Column(String, default="active")
+    region = Column(String, nullable=True)
     organization_id = Column(String, ForeignKey("organizations.id"))
     created_by = Column(String, ForeignKey("users.id"))
 

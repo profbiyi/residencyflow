@@ -14,6 +14,27 @@ def seed_database():
     # Create all tables
     Base.metadata.create_all(bind=engine)
     
+    # Run migrations
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # Add region column if it doesn't exist (PostgreSQL)
+            conn.execute(text("""
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='connectors' AND column_name='region'
+                    ) THEN
+                        ALTER TABLE connectors ADD COLUMN region VARCHAR;
+                    END IF;
+                END $$;
+            """))
+            conn.commit()
+            print("✅ Database migrations applied")
+    except Exception as e:
+        print(f"⚠️  Migration warning (may be safe to ignore): {e}")
+    
     db = SessionLocal()
     
     try:
