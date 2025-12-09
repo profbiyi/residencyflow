@@ -32,15 +32,17 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
   // Fetch schema when source is selected
   useEffect(() => {
     if (selectedSource) {
+      console.log('🔍 Fetching schema for connector:', selectedSource);
       setLoadingSchema(true);
       api.connectors.getSchema(selectedSource.id)
         .then(schema => {
-          setAvailableResources(schema.resources);
-          setSourceType(schema.source_type);
+          console.log('✅ Schema response:', schema);
+          setAvailableResources(schema.resources || []);
+          setSourceType(schema.source_type || 'unknown');
           setLoadingSchema(false);
         })
         .catch(err => {
-          console.error('Schema introspection failed:', err);
+          console.error('❌ Schema introspection failed:', err);
           setLoadingSchema(false);
           // If introspection fails, skip to destination selection
           setAvailableResources([]);
@@ -308,7 +310,7 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
           </div>
         )}
 
-        {step === 2 && sourceType !== 'database' && (
+        {step === 2 && sourceType !== 'database' && sourceType !== 'unknown' && (
            <div className="animate-in fade-in slide-in-from-right-8 duration-300 h-full flex flex-col">
             <h2 className="text-3xl font-bold text-white mb-2">Resource Selection</h2>
             <p className="text-slate-400 mb-4">This source type will sync all available resources automatically via dlt.</p>
@@ -331,6 +333,36 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-lg font-bold transition-all hover:scale-105 shadow-lg shadow-blue-900/20"
               >
                 Next Step <ArrowRight size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && sourceType === 'unknown' && (
+           <div className="animate-in fade-in slide-in-from-right-8 duration-300 h-full flex flex-col">
+            <h2 className="text-3xl font-bold text-white mb-2">Schema Discovery Failed</h2>
+            <p className="text-slate-400 mb-4">Could not automatically discover tables. Check the console for errors.</p>
+            
+            <div className="flex-1 flex items-center justify-center bg-slate-950/50 rounded-xl border border-slate-800">
+              <div className="text-center p-12">
+                <AlertTriangle size={64} className="mx-auto mb-6 text-amber-500" />
+                <h3 className="text-xl font-bold text-white mb-3">Manual Configuration Required</h3>
+                <p className="text-slate-400 max-w-md mx-auto mb-4">
+                  The connection test may have failed, or this connector type doesn't support automatic schema discovery yet.
+                </p>
+                <p className="text-sm text-slate-500">
+                  You can still create the pipeline - all tables will be synced by default.
+                </p>
+              </div>
+            </div>
+            
+            <div className="mt-8 flex justify-between pt-6 border-t border-slate-800 shrink-0">
+              <button onClick={() => setStep(1)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
+              <button 
+                onClick={() => setStep(3)}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-lg font-bold transition-all hover:scale-105 shadow-lg shadow-blue-900/20"
+              >
+                Continue Anyway <ArrowRight size={18} />
               </button>
             </div>
           </div>
