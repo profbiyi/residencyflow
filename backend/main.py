@@ -331,6 +331,75 @@ def delete_connector(connector_id: str, current_user: models.User = Depends(get_
     db.commit()
     return {"status": "deleted"}
 
+@app.get("/connectors/{connector_id}/schema")
+def introspect_connector_schema(connector_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Use dlt to introspect available tables/resources from a connector.
+    Returns what dlt discovers automatically.
+    """
+    import dlt
+    import importlib
+    
+    connector = db.query(models.Connector).filter(
+        models.Connector.id == connector_id,
+        models.Connector.organization_id == current_user.organization_id
+    ).first()
+    
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    
+    try:
+        type_id = connector.type_id
+        config = connector.configuration
+        
+        # For SQL databases, use dlt's sql_database source
+        if type_id in ['postgres', 'mysql', 'postgres_dw', 'mysql_dw']:
+            driver = "postgresql" if 'postgres' in type_id else "mysql+pymysql"
+            creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
+            
+            # Use dlt to discover schema
+            module = importlib.import_module("dlt.sources.sql_database")
+            source = module.sql_database(credentials=creds)
+            
+            # dlt source has resources - each resource is a table
+            resources = []
+            for resource_name in source.resources.keys():
+                resources.append({
+                    "name": resource_name,
+                    "type": "table",
+                    "selected": True  # Default to selected
+                })
+            
+            return {
+                "connector_id": connector_id,
+                "connector_type": type_id,
+                "resources": resources,
+                "source_type": "database"
+            }
+        
+        # For API sources (HubSpot, Salesforce, etc.), dlt also discovers resources
+        elif type_id in ['hubspot', 'salesforce', 'stripe', 'github']:
+            # Each dlt API source exposes different resources (endpoints)
+            # Example: HubSpot has 'contacts', 'companies', 'deals', etc.
+            return {
+                "connector_id": connector_id,
+                "connector_type": type_id,
+                "resources": [{"name": "all_resources", "type": "api_endpoint", "selected": True}],
+                "source_type": "api",
+                "message": "API sources will sync all available resources automatically via dlt"
+            }
+        
+        else:
+            return {
+                "connector_id": connector_id,
+                "connector_type": type_id,
+                "resources": [],
+                "source_type": "unknown"
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Schema introspection failed: {str(e)}")
+
 @app.post("/connectors/test")
 def test_connection(data: dict):
     """

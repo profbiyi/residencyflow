@@ -153,6 +153,24 @@ export const api = {
             });
             await handleResponse(res);
         }
+    },
+    getSchema: async (connectorId: string): Promise<{resources: Array<{name: string, type: string, selected: boolean}>, source_type: string}> => {
+        if (IS_LIVE) {
+            const res = await fetch(`${API_URL}/connectors/${connectorId}/schema`, {
+                headers: getHeaders()
+            });
+            await handleResponse(res);
+            return await res.json();
+        }
+        // Mock response
+        return {
+            resources: [
+                {name: 'users', type: 'table', selected: true},
+                {name: 'orders', type: 'table', selected: true},
+                {name: 'products', type: 'table', selected: true}
+            ],
+            source_type: 'database'
+        };
     }
   },
 

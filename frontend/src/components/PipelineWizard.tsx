@@ -1,9 +1,10 @@
 
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Pipeline, PipelineStatus, ConnectorInstance, SyncMode, Frequency, SchemaPolicy, NotificationConfig, TransformationConfig, PerformanceConfig } from '../types';
-import { Check, ArrowRight, RefreshCw, Clock, Settings, Play, Zap, Shield, Bell, GitBranch, AlertTriangle, Cpu } from 'lucide-react';
+import { Check, ArrowRight, RefreshCw, Clock, Settings, Play, Zap, Shield, Bell, GitBranch, AlertTriangle, Cpu, Database, Loader } from 'lucide-react';
 import { ICON_MAP, SOURCE_TYPES, DESTINATION_TYPES, SYNC_MODE_OPTIONS, FREQUENCY_OPTIONS } from '../constants';
+import { api } from '../services/api';
 
 interface WizardProps {
   sources: ConnectorInstance[];
@@ -22,6 +23,31 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
   const [selectedDest, setSelectedDest] = useState<ConnectorInstance | null>(null);
   const [syncMode, setSyncMode] = useState<SyncMode>('incremental_merge');
   const [frequency, setFrequency] = useState<Frequency>('hourly');
+  
+  // Table/Resource Selection (from dlt introspection)
+  const [loadingSchema, setLoadingSchema] = useState(false);
+  const [availableResources, setAvailableResources] = useState<Array<{name: string, type: string, selected: boolean}>>([]);
+  const [sourceType, setSourceType] = useState<string>('');
+  
+  // Fetch schema when source is selected
+  useEffect(() => {
+    if (selectedSource) {
+      setLoadingSchema(true);
+      api.connectors.getSchema(selectedSource.id)
+        .then(schema => {
+          setAvailableResources(schema.resources);
+          setSourceType(schema.source_type);
+          setLoadingSchema(false);
+        })
+        .catch(err => {
+          console.error('Schema introspection failed:', err);
+          setLoadingSchema(false);
+          // If introspection fails, skip to destination selection
+          setAvailableResources([]);
+          setSourceType('unknown');
+        });
+    }
+  }, [selectedSource]);
 
   // Enterprise / Governance State
   const [schemaPolicy, setSchemaPolicy] = useState<SchemaPolicy>('evolve');
@@ -35,6 +61,16 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
   const handleSave = () => {
     if (selectedSource && selectedDest && name) {
       setDeploying(true);
+      
+      // Prepare transformation config with selected tables/resources
+      const selectedTables = availableResources
+        .filter(r => r.selected)
+        .map(r => r.name);
+      
+      const transformationWithTables = {
+        ...dbtConfig,
+        selectedResources: selectedTables.length > 0 ? selectedTables : undefined
+      };
       
       // Simulate Backend API Call latency
       setTimeout(() => {
@@ -53,7 +89,7 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
           residency: 'Local (Lagos)',
           schemaPolicy,
           notifications: notifyConfig,
-          transformation: dbtConfig,
+          transformation: transformationWithTables,
           performance: perfConfig,
           organizationId: '', // Filled by parent
           createdBy: '' // Filled by parent
@@ -111,11 +147,13 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
       <div className="flex items-center justify-between mb-8 px-8 shrink-0">
         <StepIndicator num={1} label="Source" />
         <StepLine num={2} />
-        <StepIndicator num={2} label="Destination" />
+        <StepIndicator num={2} label="Tables" />
         <StepLine num={3} />
-        <StepIndicator num={3} label="Config" />
+        <StepIndicator num={3} label="Destination" />
         <StepLine num={4} />
-        <StepIndicator num={4} label="Governance" />
+        <StepIndicator num={4} label="Config" />
+        <StepLine num={5} />
+        <StepIndicator num={5} label="Governance" />
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl relative overflow-hidden min-h-[400px] flex flex-col">
@@ -139,9 +177,72 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
             <div className="mt-8 flex justify-between pt-6 border-t border-slate-800 shrink-0">
               <button onClick={onCancel} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Cancel</button>
               <button 
-                disabled={!selectedSource}
+                disabled={!selectedSource || loadingSchema}
                 onClick={() => setStep(2)}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-bold transition-all hover:scale-105 shadow-lg shadow-blue-900/20"
+              >
+                {loadingSchema ? (
+                  <>Discovering Schema... <Loader size={18} className="animate-spin" /></>
+                ) : (
+                  <>Next Step <ArrowRight size={18} /></>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && sourceType === 'database' && (
+           <div className="animate-in fade-in slide-in-from-right-8 duration-300 h-full flex flex-col">
+            <h2 className="text-3xl font-bold text-white mb-2">Select Tables to Sync</h2>
+            <p className="text-slate-400 mb-8">dlt discovered these tables. Choose which ones to sync.</p>
+            
+            {availableResources.length === 0 && !loadingSchema ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center text-slate-500">
+                  <Database size={48} className="mx-auto mb-4 opacity-50" />
+                  <p>No tables found or schema introspection unavailable.</p>
+                  <p className="text-sm mt-2">All tables will be synced automatically.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <div className="space-y-2 pr-2">
+                  {availableResources.map((resource, idx) => (
+                    <div 
+                      key={resource.name}
+                      onClick={() => {
+                        const updated = [...availableResources];
+                        updated[idx].selected = !updated[idx].selected;
+                        setAvailableResources(updated);
+                      }}
+                      className={`cursor-pointer p-4 rounded-lg border transition-all ${
+                        resource.selected 
+                          ? 'bg-blue-600/10 border-blue-500' 
+                          : 'bg-slate-900 border-slate-800 hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          checked={resource.selected} 
+                          readOnly
+                          className="rounded bg-slate-800 border-slate-600 text-blue-500"
+                        />
+                        <Database size={16} className="text-slate-400" />
+                        <span className="text-white font-medium">{resource.name}</span>
+                        <span className="text-xs text-slate-500 ml-auto capitalize">{resource.type}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="mt-8 flex justify-between pt-6 border-t border-slate-800 shrink-0">
+              <button onClick={() => setStep(1)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
+              <button 
+                onClick={() => setStep(3)}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-lg font-bold transition-all hover:scale-105 shadow-lg shadow-blue-900/20"
               >
                 Next Step <ArrowRight size={18} />
               </button>
@@ -149,7 +250,35 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
           </div>
         )}
 
-        {step === 2 && (
+        {step === 2 && sourceType !== 'database' && (
+           <div className="animate-in fade-in slide-in-from-right-8 duration-300 h-full flex flex-col">
+            <h2 className="text-3xl font-bold text-white mb-2">Resource Selection</h2>
+            <p className="text-slate-400 mb-4">This source type will sync all available resources automatically via dlt.</p>
+            
+            <div className="flex-1 flex items-center justify-center bg-slate-950/50 rounded-xl border border-slate-800">
+              <div className="text-center p-12">
+                <Zap size={64} className="mx-auto mb-6 text-blue-500" />
+                <h3 className="text-2xl font-bold text-white mb-3">Intelligent Sync</h3>
+                <p className="text-slate-400 max-w-md mx-auto">
+                  dlt will automatically discover and sync all available resources from this {sourceType} source.
+                  No manual configuration needed.
+                </p>
+              </div>
+            </div>
+            
+            <div className="mt-8 flex justify-between pt-6 border-t border-slate-800 shrink-0">
+              <button onClick={() => setStep(1)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
+              <button 
+                onClick={() => setStep(3)}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-lg font-bold transition-all hover:scale-105 shadow-lg shadow-blue-900/20"
+              >
+                Next Step <ArrowRight size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
            <div className="animate-in fade-in slide-in-from-right-8 duration-300 h-full flex flex-col">
             <h2 className="text-3xl font-bold text-white mb-2">Where should the data go?</h2>
             <p className="text-slate-400 mb-8">Select a destination warehouse or lake.</p>
@@ -167,10 +296,10 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
             </div>
             
             <div className="mt-8 flex justify-between pt-6 border-t border-slate-800 shrink-0">
-              <button onClick={() => setStep(1)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
+              <button onClick={() => setStep(2)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
               <button 
                 disabled={!selectedDest}
-                onClick={() => setStep(3)}
+                onClick={() => setStep(4)}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-bold transition-all hover:scale-105 shadow-lg shadow-blue-900/20"
               >
                 Next Step <ArrowRight size={18} />
@@ -179,7 +308,7 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
           </div>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
            <div className="animate-in fade-in slide-in-from-right-8 duration-300 h-full flex flex-col">
             <h2 className="text-3xl font-bold text-white mb-2">Sync Configuration</h2>
             <p className="text-slate-400 mb-8">How should we move the data?</p>
@@ -278,10 +407,10 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
             </div>
 
             <div className="mt-8 flex justify-between pt-6 border-t border-slate-800 shrink-0">
-              <button onClick={() => setStep(2)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
+              <button onClick={() => setStep(3)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
               <button 
                 disabled={!name}
-                onClick={() => setStep(4)}
+                onClick={() => setStep(5)}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-bold transition-all hover:scale-105 shadow-lg shadow-blue-900/20"
               >
                 Next Step <ArrowRight size={18} />
@@ -290,7 +419,7 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
           </div>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <div className="animate-in fade-in slide-in-from-right-8 duration-300 h-full flex flex-col">
             <h2 className="text-3xl font-bold text-white mb-2">Governance & Reliability</h2>
             <p className="text-slate-400 mb-8">Ensure schema quality and set up alerts.</p>
@@ -372,7 +501,7 @@ export const PipelineWizard: React.FC<WizardProps> = ({ sources, destinations, o
             </div>
 
             <div className="mt-8 flex justify-between pt-6 border-t border-slate-800 shrink-0">
-              <button onClick={() => setStep(3)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
+              <button onClick={() => setStep(4)} className="text-slate-400 hover:text-white px-4 py-2 font-medium">Back</button>
               <button 
                 onClick={handleSave}
                 disabled={deploying}
