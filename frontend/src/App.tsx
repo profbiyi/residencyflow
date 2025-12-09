@@ -227,9 +227,12 @@ function App() {
     logAction(`Update ${type}`, c.name);
   };
 
-  const handleDeleteConnector = (id: string, type: 'source' | 'destination') => {
+  const handleDeleteConnector = async (id: string, type: 'source' | 'destination') => {
+    await api.connectors.delete(id);
     if (type === 'source') setSources(sources.filter(item => item.id !== id));
     else setDestinations(destinations.filter(item => item.id !== id));
+    logAction(`Delete ${type}`, id);
+    triggerToast('Connector deleted');
   };
 
   const handleInviteMember = (email: string, role: string) => {

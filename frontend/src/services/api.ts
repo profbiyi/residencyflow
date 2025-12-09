@@ -133,6 +133,15 @@ export const api = {
             return await res.json();
         }
         return { success: true, message: "Connection verified (Simulated)" };
+    },
+    delete: async (id: string): Promise<void> => {
+        if (IS_LIVE) {
+            const res = await fetch(`${API_URL}/connectors/${id}`, {
+                method: 'DELETE',
+                headers: getHeaders()
+            });
+            await handleResponse(res);
+        }
     }
   },
 
