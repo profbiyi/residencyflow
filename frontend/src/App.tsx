@@ -46,7 +46,12 @@ function App() {
       try {
         const userProfile = JSON.parse(savedUser);
         setUser(userProfile);
-        if (userProfile.role === 'SuperAdmin') {
+        
+        // Restore last view from sessionStorage
+        const savedView = sessionStorage.getItem('activeView');
+        if (savedView && savedView !== 'landing' && savedView !== 'login' && savedView !== 'register') {
+          setActiveView(savedView as ViewState);
+        } else if (userProfile.role === 'SuperAdmin') {
           setActiveView('super-admin');
         } else {
           setActiveView('dashboard');
@@ -58,6 +63,13 @@ function App() {
       }
     }
   }, []);
+  
+  // Save activeView to sessionStorage whenever it changes
+  useEffect(() => {
+    if (user && activeView !== 'landing' && activeView !== 'login' && activeView !== 'register') {
+      sessionStorage.setItem('activeView', activeView);
+    }
+  }, [activeView, user]);
   
   // HYDRATION: If Live, load from backend
   useEffect(() => {
