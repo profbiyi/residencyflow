@@ -21,7 +21,14 @@ SOURCE_REGISTRY = {
     # ... Add all supported
 }
 
-def load_source_dynamically(conn):
+def load_source_dynamically(conn, selected_resources=None):
+    """
+    Load dlt source dynamically based on connector type.
+    
+    Args:
+        conn: Connector model instance
+        selected_resources: Optional list of table/resource names to sync (from pipeline config)
+    """
     type_id = conn.type_id
     config = conn.configuration
     
@@ -29,12 +36,21 @@ def load_source_dynamically(conn):
          driver = "postgresql" if type_id == 'postgres' else "mysql+pymysql"
          creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
          module = importlib.import_module("dlt.sources.sql_database")
-         return module.sql_database(credentials=creds)
+         
+         # If specific tables selected, only sync those
+         if selected_resources:
+             return module.sql_database(credentials=creds, table_names=selected_resources)
+         else:
+             # Sync all tables
+             return module.sql_database(credentials=creds)
     
     if type_id in SOURCE_REGISTRY:
         module = importlib.import_module(SOURCE_REGISTRY[type_id])
         # Auto-detect main function
-        return getattr(module, type_id)(**config)
+        source_func = getattr(module, type_id)
+        
+        # For API sources, dlt handles resource selection internally
+        return source_func(**config)
         
     raise ValueError(f"Unknown source: {type_id}")
 
@@ -60,8 +76,16 @@ def process_pipeline(p_id):
         src_conn = db.query(models.Connector).filter(models.Connector.id == pipeline.source_id).first()
         dest_conn = db.query(models.Connector).filter(models.Connector.id == pipeline.destination_id).first()
         
-        # 1. Source
-        source = load_source_dynamically(src_conn)
+        # Extract selected tables/resources from transformation config
+        selected_resources = None
+        if pipeline.transformation_config and 'selectedResources' in pipeline.transformation_config:
+            selected_resources = pipeline.transformation_config['selectedResources']
+            print(f"WORKER: Syncing selected resources: {selected_resources}")
+        else:
+            print(f"WORKER: Syncing all available resources (no selection specified)")
+        
+        # 1. Source (with optional table selection)
+        source = load_source_dynamically(src_conn, selected_resources=selected_resources)
         
         # 2. Transform (Governance)
         if pipeline.transformation_config and 'pii_columns' in pipeline.transformation_config:
