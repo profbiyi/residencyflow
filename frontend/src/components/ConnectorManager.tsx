@@ -105,7 +105,7 @@ export const ConnectorManager: React.FC<Props> = ({ type, existing, onAdd, onUpd
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const finalName = configName || `${selectedType?.name || 'New'} Connection`;
     if (!selectedType) return;
 
@@ -125,9 +125,9 @@ export const ConnectorManager: React.FC<Props> = ({ type, existing, onAdd, onUpd
     };
 
     if (mode === 'add') {
-      onAdd(newInstance);
+      await onAdd(newInstance);
     } else {
-      onUpdate(newInstance);
+      await onUpdate(newInstance);
     }
     resetForm();
   };
