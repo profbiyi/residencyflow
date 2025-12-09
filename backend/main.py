@@ -101,12 +101,19 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     access_token = create_access_token(data={"sub": user.email})
     refresh_token = create_refresh_token(data={"sub": user.email})
     
+    # Get organization name if user belongs to one
+    company_name = user.full_name  # Default for SuperAdmin
+    if user.organization_id:
+        org = db.query(models.Organization).filter(models.Organization.id == user.organization_id).first()
+        if org:
+            company_name = org.name
+    
     # Format user object for frontend compatibility
     user_data = {
         "id": user.id,
         "email": user.email,
         "name": user.full_name,
-        "companyName": user.full_name,  # Using full_name as companyName for now
+        "companyName": company_name,
         "organizationId": user.organization_id,
         "role": user.role
     }
