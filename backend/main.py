@@ -357,9 +357,18 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
             driver = "postgresql" if 'postgres' in type_id else "mysql+pymysql"
             creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
             
+            # Get schema from config (defaults to 'public' if not specified)
+            schema_name = config.get('schema', 'public')
+            
             # Use dlt to discover schema
             module = importlib.import_module("dlt.sources.sql_database")
-            source = module.sql_database(credentials=creds)
+            
+            # Pass schema parameter to dlt
+            if schema_name and schema_name != 'public':
+                source = module.sql_database(credentials=creds, schema=schema_name)
+            else:
+                # Default: introspect all schemas or just public
+                source = module.sql_database(credentials=creds)
             
             # dlt source has resources - each resource is a table
             resources = []
@@ -374,7 +383,8 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
                 "connector_id": connector_id,
                 "connector_type": type_id,
                 "resources": resources,
-                "source_type": "database"
+                "source_type": "database",
+                "schema_filter": schema_name  # Let frontend know which schema was used
             }
         
         # For API sources (HubSpot, Salesforce, etc.), dlt also discovers resources

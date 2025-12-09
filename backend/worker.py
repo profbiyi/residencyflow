@@ -37,12 +37,19 @@ def load_source_dynamically(conn, selected_resources=None):
          creds = f"{driver}://{config['username']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}"
          module = importlib.import_module("dlt.sources.sql_database")
          
-         # If specific tables selected, only sync those
+         # Get schema from connector config (defaults to 'public')
+         schema_name = config.get('schema', 'public')
+         
+         # Build dlt source with schema and optional table selection
+         kwargs = {'credentials': creds}
+         
+         if schema_name and schema_name != 'public':
+             kwargs['schema'] = schema_name
+         
          if selected_resources:
-             return module.sql_database(credentials=creds, table_names=selected_resources)
-         else:
-             # Sync all tables
-             return module.sql_database(credentials=creds)
+             kwargs['table_names'] = selected_resources
+         
+         return module.sql_database(**kwargs)
     
     if type_id in SOURCE_REGISTRY:
         module = importlib.import_module(SOURCE_REGISTRY[type_id])
