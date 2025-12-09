@@ -155,6 +155,23 @@ def read_root():
 def health_check():
     return {"status": "healthy"}
 
+@app.get("/debug/connectors")
+def debug_connectors(db: Session = Depends(get_db)):
+    """Debug endpoint to see all connectors in database"""
+    connectors = db.query(models.Connector).all()
+    return {
+        "total": len(connectors),
+        "connectors": [{
+            "id": c.id,
+            "name": c.name,
+            "type_id": c.type_id,
+            "connector_type": c.connector_type,
+            "organization_id": c.organization_id,
+            "status": c.status,
+            "has_region": hasattr(c, 'region')
+        } for c in connectors]
+    }
+
 # --- SUPER ADMIN ENDPOINTS (The "Agba" Features) ---
 @app.get("/admin/organizations")
 def list_orgs(current_user: models.User = Depends(get_super_admin), db: Session = Depends(get_db)):
