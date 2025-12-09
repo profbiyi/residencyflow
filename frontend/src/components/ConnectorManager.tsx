@@ -117,6 +117,7 @@ export const ConnectorManager: React.FC<Props> = ({ type, existing, onAdd, onUpd
         id: editId || `${type}-${Date.now()}`,
         name: finalName,
         typeId: selectedType.id,
+        connectorType: type, // 'source' or 'destination'
         status: testStatus === 'success' ? 'active' : 'pending',
         configuration: configValues,
         region: 'Auto-detected',
