@@ -9,6 +9,8 @@ requests==2.31.0
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==4.0.1
+prefect>=2.14.0
+httpx>=0.25.0
 dlt[all]==0.4.10
 dlt-sources-sql-database>=0.2.0
 duckdb==0.9.2

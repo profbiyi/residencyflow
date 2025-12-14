@@ -52,6 +52,9 @@ class Pipeline(Base):
     schema_policy = Column(String, default="evolve")
     notification_config = Column(JSON, nullable=True)
     transformation_config = Column(JSON, nullable=True)
+    # Prefect integration
+    prefect_deployment_id = Column(String, nullable=True)
+    last_prefect_run_id = Column(String, nullable=True)
 
 class TeamInvitation(Base):
     __tablename__ = "team_invitations"

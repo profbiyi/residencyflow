@@ -10,6 +10,7 @@ import jwt # PyJWT
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import os
+from prefect_client import prefect_orchestrator
 
 # SECURITY CONFIG
 SECRET_KEY = os.getenv("SECRET_KEY", "super_secret_key_change_me")
@@ -38,6 +39,27 @@ async def startup_event():
                     END IF;
                 END $$;
             """))
+            
+            # Add Prefect fields to pipelines
+            conn.execute(text("""
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='pipelines' AND column_name='prefect_deployment_id'
+                    ) THEN
+                        ALTER TABLE pipelines ADD COLUMN prefect_deployment_id VARCHAR;
+                    END IF;
+                    
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name='pipelines' AND column_name='last_prefect_run_id'
+                    ) THEN
+                        ALTER TABLE pipelines ADD COLUMN last_prefect_run_id VARCHAR;
+                    END IF;
+                END $$;
+            """))
+            
             conn.commit()
         print("✅ Database migrations applied")
     except Exception as e:
@@ -250,27 +272,54 @@ def get_pipelines(current_user: models.User = Depends(get_current_user), db: Ses
     return db.query(models.Pipeline).filter(models.Pipeline.organization_id == current_user.organization_id).all()
 
 @app.post("/pipelines")
-def create_pipeline(pipeline: schemas.PipelineCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    pipeline_id = str(uuid.uuid4())
+    
+    # Create Prefect deployment
+    try:
+        deployment_id = await prefect_orchestrator.create_pipeline_deployment(
+            pipeline_id=pipeline_id,
+            pipeline_name=pipeline.name,
+            frequency=pipeline.frequency,
+            organization_id=current_user.organization_id
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create Prefect deployment: {str(e)}"
+        )
+    
+    # Create pipeline in database with Prefect deployment ID
     new_p = models.Pipeline(
-        id=str(uuid.uuid4()),
+        id=pipeline_id,
         organization_id=current_user.organization_id,
         created_by=current_user.id,
+        prefect_deployment_id=deployment_id,  # Store for future operations
         **pipeline.dict()
     )
     db.add(new_p)
     db.commit()
+    db.refresh(new_p)
     return new_p
 
 @app.post("/pipelines/{id}/run")
-def run_pipeline(id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def run_pipeline(id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     p = db.query(models.Pipeline).filter(models.Pipeline.id == id).first()
     if not p or p.organization_id != current_user.organization_id:
         raise HTTPException(status_code=404)
     
-    p.status = "RUNNING"
-    db.commit()
-    # In real world, send message to Redis/Celery/RabbitMQ here
-    return {"status": "queued"}
+    # Trigger Prefect flow run
+    try:
+        flow_run_id = await prefect_orchestrator.trigger_pipeline_run(pipeline_id=id)
+        p.status = "RUNNING"
+        p.last_prefect_run_id = flow_run_id  # Track the run
+        db.commit()
+        return {"status": "queued", "flow_run_id": flow_run_id}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to trigger pipeline run: {str(e)}"
+        )
 
 @app.get("/connectors")
 def get_connectors(type: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
