@@ -228,6 +228,25 @@ services:
     restart: unless-stopped
 
   # ===================
+  # FRONTEND
+  # ===================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: residencyflow-frontend
+    environment:
+      VITE_API_URL: http://${DOMAIN:-localhost}:8000
+    ports:
+      - "5173:80"
+    networks:
+      - frontend
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # ===================
   # REVERSE PROXY
   # ===================
 
