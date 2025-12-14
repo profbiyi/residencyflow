@@ -202,8 +202,16 @@ sed -i "s|SECRET_KEY=.*|SECRET_KEY=${SECRET_KEY}|" /opt/residencyflow/.env.prod
 sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" /opt/residencyflow/.env.prod
 sed -i "s|REDIS_PASSWORD=.*|REDIS_PASSWORD=${REDIS_PASSWORD}|" /opt/residencyflow/.env.prod
 sed -i "s|MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}|" /opt/residencyflow/.env.prod
+sed -i "s|MINIO_SECRET_KEY=.*|MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}|" /opt/residencyflow/.env.prod
 sed -i "s|KEYCLOAK_ADMIN_PASSWORD=.*|KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}|" /opt/residencyflow/.env.prod
 sed -i "s|GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}|" /opt/residencyflow/.env.prod
+
+# Replace CHANGE_ME_ placeholders
+log "Replacing placeholder values..."
+sed -i "s|MINIO_ACCESS_KEY=CHANGE_ME_MINIO_ACCESS_KEY|MINIO_ACCESS_KEY=minioadmin|" /opt/residencyflow/.env.prod
+sed -i "s|JWT_SECRET=CHANGE_ME_JWT_SECRET_32_CHARS_MIN|JWT_SECRET=$(openssl rand -base64 32)|" /opt/residencyflow/.env.prod
+sed -i "s|KEYCLOAK_CLIENT_SECRET=CHANGE_ME_KEYCLOAK_CLIENT_SECRET|KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)|" /opt/residencyflow/.env.prod
+sed -i "s|KEYCLOAK_ADMIN_CLIENT_SECRET=CHANGE_ME_ADMIN_CLIENT_SECRET|KEYCLOAK_ADMIN_CLIENT_SECRET=$(openssl rand -base64 32)|" /opt/residencyflow/.env.prod
 
 # Prompt for domain
 read -p "Enter your domain (e.g., residencyflow.com): " DOMAIN
@@ -248,6 +256,14 @@ log "Secrets generated and saved to /root/.residencyflow-credentials"
 # Step 10: Install systemd service
 log "Installing systemd service..."
 cp /opt/residencyflow/deployment/systemd/residencyflow.service /etc/systemd/system/
+
+# Fix docker-compose path in systemd service
+log "Configuring systemd service..."
+sed -i 's|/usr/bin/docker-compose|/usr/local/bin/docker-compose|g' /etc/systemd/system/residencyflow.service
+
+# Add git safe directory
+git config --global --add safe.directory /opt/residencyflow
+
 systemctl daemon-reload
 systemctl enable residencyflow.service
 log "Systemd service installed"
@@ -267,7 +283,7 @@ log "Backup cron job configured (daily at 2 AM)"
 # Step 12: Pull Docker images
 log "Pulling Docker images (this may take several minutes)..."
 cd /opt/residencyflow
-docker-compose -f docker-compose.prod.yml pull
+/usr/local/bin/docker-compose -f docker-compose.prod.yml pull
 
 # Step 13: Start services
 log "Starting ResidencyFlow services..."
@@ -281,22 +297,46 @@ sleep 60
 log "Initializing database..."
 cd /opt/residencyflow
 
+# Wait for PostgreSQL to be fully ready
+log "Waiting for PostgreSQL to be ready..."
+for i in {1..30}; do
+    if docker exec residencyflow-db pg_isready -U residency &>/dev/null; then
+        log "PostgreSQL is ready"
+        break
+    fi
+    sleep 2
+done
+
+# Create additional databases for Prefect and Keycloak
+log "Creating additional databases..."
+docker exec residencyflow-db psql -U residency -d residencyflow -c "CREATE DATABASE prefect;" 2>/dev/null || info "Prefect database already exists"
+docker exec residencyflow-db psql -U residency -d residencyflow -c "CREATE DATABASE keycloak;" 2>/dev/null || info "Keycloak database already exists"
+
+# Restart Prefect and Keycloak to connect to databases
+log "Restarting services with database connections..."
+/usr/local/bin/docker-compose -f docker-compose.prod.yml restart prefect keycloak
+
 # Run migrations (if you have a migration script)
-# docker-compose -f docker-compose.prod.yml exec -T api python -m alembic upgrade head
+# /usr/local/bin/docker-compose -f docker-compose.prod.yml exec -T api python -m alembic upgrade head
 
 # Apply RLS policies
 if [ -f backend/rls_policies.sql ]; then
     log "Applying RLS policies..."
-    docker-compose -f docker-compose.prod.yml exec -T postgres psql -U postgres -d residencyflow -f /docker-entrypoint-initdb.d/rls_policies.sql || warn "RLS policies failed (may already be applied)"
+    /usr/local/bin/docker-compose -f docker-compose.prod.yml exec -T postgres psql -U postgres -d residencyflow -f /docker-entrypoint-initdb.d/rls_policies.sql || warn "RLS policies failed (may already be applied)"
 fi
 
-# Step 15: Health checks
+# Step 15: Stop unnecessary services
+log "Stopping worker (runs once on startup)..."
+docker stop residencyflow-worker 2>/dev/null || true
+
+# Step 16: Health checks
 log "Running health checks..."
 HEALTH_CHECKS=(
-    "http://localhost:8000/health|API|8000"
+    "http://localhost:8000/docs|API|8000"
+    "http://localhost:5173|Frontend|5173"
     "http://localhost:4200/api/health|Prefect|4200"
     "http://localhost:9000/minio/health/live|MinIO|9000"
-    "http://localhost:3001/api/health|Grafana|3001"
+    "http://localhost:3000|Grafana|3000"
     "http://localhost:9090/-/healthy|Prometheus|9090"
 )
 
@@ -311,7 +351,7 @@ for check in "${HEALTH_CHECKS[@]}"; do
     fi
 done
 
-# Step 16: DNS instructions
+# Step 17: DNS instructions
 echo ""
 echo "═══════════════════════════════════════════════════════"
 log "Deployment completed!"
@@ -343,13 +383,24 @@ fi
 
 echo "🔑 Credentials saved to: /root/.residencyflow-credentials"
 echo ""
-echo "🌐 Service URLs:"
-echo "  Main App:      https://${DOMAIN:-$SERVER_IP}"
-echo "  API:           https://api.${DOMAIN:-$SERVER_IP}"
-echo "  Prefect:       https://prefect.${DOMAIN:-$SERVER_IP}"
-echo "  Keycloak:      https://auth.${DOMAIN:-$SERVER_IP}"
-echo "  Grafana:       https://monitor.${DOMAIN:-$SERVER_IP}"
-echo "  MinIO:         https://storage.${DOMAIN:-$SERVER_IP}"
+echo "🌐 Service URLs (direct access via IP):"
+echo "  Frontend:      http://$SERVER_IP:5173"
+echo "  API:           http://$SERVER_IP:8000"
+echo "  Prefect:       http://$SERVER_IP:4200"
+echo "  Keycloak:      http://$SERVER_IP:8080"
+echo "  Grafana:       http://$SERVER_IP:3000"
+echo "  Prometheus:    http://$SERVER_IP:9090"
+echo "  MinIO Console: http://$SERVER_IP:9001"
+echo ""
+if [ -n "$DOMAIN" ]; then
+    echo "🌐 After DNS configuration:"
+    echo "  Main App:      https://${DOMAIN}"
+    echo "  API:           https://api.${DOMAIN}"
+    echo "  Prefect:       https://prefect.${DOMAIN}"
+    echo "  Keycloak:      https://auth.${DOMAIN}"
+    echo "  Grafana:       https://monitor.${DOMAIN}"
+    echo "  MinIO:         https://storage.${DOMAIN}"
+fi
 echo ""
 echo "📊 Monitoring:"
 echo "  Prometheus:    http://$SERVER_IP:9090"
