@@ -32,10 +32,11 @@ class KeycloakAuth:
         self.public_key_cache: Optional[str] = None
         self.cache_timestamp: Optional[datetime] = None
     
-    async def get_public_key(self) -> str:
+    async def get_public_key(self) -> Optional[str]:
         """
         Fetch Keycloak's public key for JWT verification.
         Cached for 1 hour to avoid excessive requests.
+        Returns None if Keycloak is not available.
         """
         # Check cache (1 hour TTL)
         if self.public_key_cache and self.cache_timestamp:
@@ -43,36 +44,46 @@ class KeycloakAuth:
             if elapsed < 3600:  # 1 hour
                 return self.public_key_cache
         
-        async with httpx.AsyncClient() as client:
-            response = await client.get(JWKS_URL)
-            response.raise_for_status()
-            jwks = response.json()
-            
-            # Get first key (Keycloak typically uses RS256)
-            if jwks.get("keys"):
-                key = jwks["keys"][0]
-                # Convert JWK to PEM format
-                from jose.backends import RSAKey
-                rsa_key = RSAKey(key, algorithm='RS256')
-                public_key = rsa_key.to_pem().decode('utf-8')
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get(JWKS_URL)
+                response.raise_for_status()
+                jwks = response.json()
                 
-                # Cache it
-                self.public_key_cache = public_key
-                self.cache_timestamp = datetime.utcnow()
+                # Get first key (Keycloak typically uses RS256)
+                if jwks.get("keys"):
+                    key = jwks["keys"][0]
+                    # Convert JWK to PEM format
+                    from jose.backends import RSAKey
+                    rsa_key = RSAKey(key, algorithm='RS256')
+                    public_key = rsa_key.to_pem().decode('utf-8')
+                    
+                    # Cache it
+                    self.public_key_cache = public_key
+                    self.cache_timestamp = datetime.utcnow()
+                    
+                    return public_key
                 
-                return public_key
-            
-            raise ValueError("No keys found in JWKS")
+                return None
+        except Exception as e:
+            # Keycloak not available - fallback to legacy auth
+            print(f"⚠️  Keycloak unavailable: {e}. Using legacy auth.")
+            return None
     
-    async def verify_token(self, token: str) -> Dict[str, Any]:
+    async def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """
         Verify Keycloak JWT token and extract claims.
+        Returns None if Keycloak is not available.
         
         Returns:
-            Dict with user claims (sub, email, roles, etc.)
+            Dict with user claims (sub, email, roles, etc.) or None
         """
         try:
             public_key = await self.get_public_key()
+            
+            if not public_key:
+                # Keycloak not available
+                return None
             
             # Decode and verify token
             payload = jwt.decode(
@@ -89,12 +100,9 @@ class KeycloakAuth:
             
             return payload
         
-        except JWTError as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid token: {str(e)}",
-                headers={"WWW-Authenticate": "Bearer"}
-            )
+        except Exception as e:
+            # Token invalid or Keycloak unavailable
+            return None
     
     async def exchange_code_for_token(
         self,
@@ -304,9 +312,13 @@ async def get_current_user_keycloak(
 ):
     """
     FastAPI dependency to get current user from Keycloak token.
-    Replaces the old JWT-based get_current_user.
+    Fallbacks to None if Keycloak is unavailable (allows legacy auth).
     """
     payload = await keycloak_auth.verify_token(token)
+    
+    if not payload:
+        # Keycloak not available - return None to fallback to legacy auth
+        return None
     
     return {
         "id": payload.get("sub"),  # Keycloak user ID
@@ -321,7 +333,12 @@ async def get_current_user_keycloak(
 async def require_super_admin(current_user: dict = Depends(get_current_user_keycloak)):
     """
     FastAPI dependency to require super admin role.
+    Falls back to legacy auth if Keycloak is unavailable.
     """
+    if not current_user:
+        # Keycloak unavailable - will use legacy auth in main.py
+        return None
+    
     if not keycloak_auth.is_super_admin(current_user["roles"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -333,7 +350,12 @@ async def require_super_admin(current_user: dict = Depends(get_current_user_keyc
 async def require_org_admin(current_user: dict = Depends(get_current_user_keycloak)):
     """
     FastAPI dependency to require organization admin role.
+    Falls back to legacy auth if Keycloak is unavailable.
     """
+    if not current_user:
+        # Keycloak unavailable - will use legacy auth in main.py
+        return None
+    
     if not keycloak_auth.is_org_admin(current_user["roles"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
