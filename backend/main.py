@@ -98,6 +98,7 @@ def create_refresh_token(data: dict):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Legacy JWT-based authentication"""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
@@ -108,6 +109,31 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(models.User).filter(models.User.email == email).first()
     if user is None: raise HTTPException(status_code=401)
     return user
+
+async def get_current_user_unified(keycloak_user: dict = Depends(get_current_user_keycloak), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """
+    Unified auth: Try Keycloak first, fallback to legacy JWT.
+    Returns dict format for consistency.
+    """
+    # If Keycloak auth worked
+    if keycloak_user:
+        return keycloak_user
+    
+    # Fallback to legacy auth
+    try:
+        user = get_current_user(token, db)
+        # Convert User model to dict format
+        return {
+            "id": user.id,
+            "sub": user.id,
+            "email": user.email,
+            "name": user.full_name,
+            "organization_id": user.organization_id,
+            "role": user.role,
+            "roles": [user.role] if user.role else []
+        }
+    except:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
 def get_super_admin(user: models.User = Depends(get_current_user)):
     if user.role != "SuperAdmin":
@@ -340,11 +366,11 @@ def update_plan(org_id: str, plan_data: schemas.PlanUpdate, current_user: dict =
 
 # --- PIPELINE ENDPOINTS ---
 @app.get("/pipelines")
-def get_pipelines(current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+def get_pipelines(current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     return db.query(models.Pipeline).filter(models.Pipeline.organization_id == current_user["organization_id"]).all()
 
 @app.post("/pipelines")
-async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     pipeline_id = str(uuid.uuid4())
     
     # Create Prefect deployment
@@ -375,7 +401,7 @@ async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict =
     return new_p
 
 @app.post("/pipelines/{id}/run")
-async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     p = db.query(models.Pipeline).filter(models.Pipeline.id == id).first()
     if not p or p.organization_id != current_user["organization_id"]:
         raise HTTPException(status_code=404)
@@ -394,7 +420,7 @@ async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_ke
         )
 
 @app.get("/connectors")
-def get_connectors(type: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+def get_connectors(type: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     connectors = db.query(models.Connector).filter(
         models.Connector.organization_id == current_user["organization_id"],
         models.Connector.connector_type == type
@@ -414,7 +440,7 @@ def get_connectors(type: str, current_user: dict = Depends(get_current_user_keyc
     } for c in connectors]
 
 @app.post("/connectors")
-def create_connector(conn: schemas.ConnectorCreate, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+def create_connector(conn: schemas.ConnectorCreate, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     new_c = models.Connector(
         id=str(uuid.uuid4()),
         organization_id=current_user["organization_id"],
@@ -439,7 +465,7 @@ def create_connector(conn: schemas.ConnectorCreate, current_user: dict = Depends
     }
 
 @app.delete("/connectors/{connector_id}")
-def delete_connector(connector_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+def delete_connector(connector_id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     connector = db.query(models.Connector).filter(
         models.Connector.id == connector_id,
         models.Connector.organization_id == current_user["organization_id"]
@@ -453,7 +479,7 @@ def delete_connector(connector_id: str, current_user: dict = Depends(get_current
     return {"status": "deleted"}
 
 @app.get("/connectors/{connector_id}/schema")
-def introspect_connector_schema(connector_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+def introspect_connector_schema(connector_id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     """
     Use dlt to introspect available tables/resources from a connector.
     Returns what dlt discovers automatically.
@@ -721,14 +747,14 @@ async def invite_team_member(invite: schemas.InviteUserRequest, current_user: di
     return {"message": "Invitation sent", "id": invitation.id, "token": token}
 
 @app.get("/team/invitations")
-def list_invitations(current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+def list_invitations(current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     invitations = db.query(models.TeamInvitation).filter(
         models.TeamInvitation.organization_id == current_user["organization_id"]
     ).all()
     return invitations
 
 @app.delete("/team/invitations/{invitation_id}")
-def cancel_invitation(invitation_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+def cancel_invitation(invitation_id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     invitation = db.query(models.TeamInvitation).filter(
         models.TeamInvitation.id == invitation_id,
         models.TeamInvitation.organization_id == current_user["organization_id"]
