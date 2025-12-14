@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ===================
   # CONTROL PLANE
@@ -125,12 +123,6 @@ services:
       - dlt_data:/app/dlt_data
       - pipeline_data:/app/pipelines
     restart: unless-stopped
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
 
   minio:
     image: minio/minio:latest
