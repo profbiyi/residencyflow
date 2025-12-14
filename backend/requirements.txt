@@ -9,6 +9,8 @@ requests==2.31.0
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==4.0.1
+python-keycloak>=3.9.0
+redis>=5.0.0
 prefect>=2.14.0
 httpx>=0.25.0
 dlt[all]==0.4.10

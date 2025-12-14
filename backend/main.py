@@ -11,6 +11,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import os
 from prefect_client import prefect_orchestrator
+from keycloak_auth import keycloak_auth, get_current_user_keycloak, require_super_admin, require_org_admin
 
 # SECURITY CONFIG
 SECRET_KEY = os.getenv("SECRET_KEY", "super_secret_key_change_me")
@@ -113,9 +114,93 @@ def get_super_admin(user: models.User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Super Admin privileges required")
     return user
 
-# --- AUTH ENDPOINTS ---
+# --- AUTH ENDPOINTS (Keycloak OIDC) ---
+@app.post("/auth/callback")
+async def auth_callback(code: str = Body(...), db: Session = Depends(get_db)):
+    """Handle OAuth2 authorization code exchange from Keycloak"""
+    try:
+        token_response = await keycloak_auth.exchange_code_for_token(code)
+        access_token = token_response["access_token"]
+        refresh_token = token_response["refresh_token"]
+        
+        # Get user info from Keycloak
+        user_info = await keycloak_auth.get_user_info(access_token)
+        email = user_info.get("email")
+        
+        if not email:
+            raise HTTPException(status_code=400, detail="Email not provided by Keycloak")
+        
+        # Check if user exists in our database
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found. Contact admin for invite.")
+        
+        # Update user's Keycloak attributes if needed
+        organization_id = user_info.get("organization_id", user.organization_id)
+        
+        # Get organization name if user belongs to one
+        company_name = user.full_name  # Default for SuperAdmin
+        if user.organization_id:
+            org = db.query(models.Organization).filter(models.Organization.id == user.organization_id).first()
+            if org:
+                company_name = org.name
+        
+        # Format user object for frontend compatibility
+        user_data = {
+            "id": user.id,
+            "email": user.email,
+            "name": user.full_name,
+            "companyName": company_name,
+            "organizationId": user.organization_id,
+            "role": user.role
+        }
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": user_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
+
+@app.post("/auth/refresh")
+async def refresh_token(refresh_token: str = Body(..., embed=True)):
+    """Refresh access token using Keycloak refresh token"""
+    try:
+        token_response = await keycloak_auth.refresh_access_token(refresh_token)
+        return {
+            "access_token": token_response["access_token"],
+            "refresh_token": token_response.get("refresh_token", refresh_token),
+            "token_type": "bearer"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token refresh failed: {str(e)}")
+
+@app.post("/auth/logout")
+async def logout(refresh_token: str = Body(..., embed=True)):
+    """Logout user and revoke tokens in Keycloak"""
+    try:
+        await keycloak_auth.logout(refresh_token)
+        return {"message": "Logged out successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Logout failed: {str(e)}")
+
+@app.get("/auth/config")
+def get_auth_config():
+    """Return Keycloak configuration for frontend"""
+    return {
+        "keycloak_url": os.getenv("KEYCLOAK_URL", "http://localhost:8080"),
+        "realm": os.getenv("KEYCLOAK_REALM", "residencyflow"),
+        "client_id": os.getenv("KEYCLOAK_CLIENT_ID", "residencyflow-frontend"),
+        "auth_endpoint": f"{os.getenv('KEYCLOAK_URL', 'http://localhost:8080')}/realms/{os.getenv('KEYCLOAK_REALM', 'residencyflow')}/protocol/openid-connect/auth",
+        "token_endpoint": f"{os.getenv('KEYCLOAK_URL', 'http://localhost:8080')}/realms/{os.getenv('KEYCLOAK_REALM', 'residencyflow')}/protocol/openid-connect/token"
+    }
+
+# --- LEGACY AUTH (kept for backward compatibility during migration) ---
 @app.post("/auth/token")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login_legacy(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Legacy password-based login (deprecated - use Keycloak OIDC)"""
     user = db.query(models.User).filter(models.User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
@@ -147,35 +232,6 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "user": user_data
     }
 
-@app.post("/auth/refresh")
-def refresh_token(refresh_token: str = Body(..., embed=True), db: Session = Depends(get_db)):
-    try:
-        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        
-        email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(status_code=401)
-            
-        user = db.query(models.User).filter(models.User.email == email).first()
-        if user is None:
-            raise HTTPException(status_code=401)
-            
-        new_access_token = create_access_token(data={"sub": user.email})
-        return {"access_token": new_access_token, "token_type": "bearer"}
-        
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Refresh token expired")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
-
-@app.post("/auth/register")
-def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # This is for public registration (if enabled)
-    # Use Admin endpoint for onboarded tenants
-    pass
-
 @app.get("/")
 def read_root():
     return {"message": "ResidencyFlow API is running"}
@@ -203,7 +259,7 @@ def debug_connectors(db: Session = Depends(get_db)):
 
 # --- SUPER ADMIN ENDPOINTS (The "Agba" Features) ---
 @app.get("/admin/organizations")
-def list_orgs(current_user: models.User = Depends(get_super_admin), db: Session = Depends(get_db)):
+def list_orgs(current_user: dict = Depends(require_super_admin), db: Session = Depends(get_db)):
     orgs = db.query(models.Organization).all()
     # Format for frontend
     return [{
@@ -218,7 +274,7 @@ def list_orgs(current_user: models.User = Depends(get_super_admin), db: Session 
     } for org in orgs]
 
 @app.post("/admin/organizations")
-def onboard_tenant(org_data: schemas.OrgCreate, current_user: models.User = Depends(get_super_admin), db: Session = Depends(get_db)):
+async def onboard_tenant(org_data: schemas.OrgCreate, current_user: dict = Depends(require_super_admin), db: Session = Depends(get_db)):
     # 1. Check existing
     if db.query(models.User).filter(models.User.email == org_data.admin_email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -234,12 +290,28 @@ def onboard_tenant(org_data: schemas.OrgCreate, current_user: models.User = Depe
     )
     db.add(new_org)
     
-    # 3. Create Admin User
+    # 3. Create Admin User in Keycloak and Database
+    user_id = str(uuid.uuid4())
+    try:
+        # Create user in Keycloak
+        await keycloak_auth.create_user(
+            email=org_data.admin_email,
+            password=org_data.password,
+            first_name=org_data.admin_name.split()[0] if org_data.admin_name else "",
+            last_name=" ".join(org_data.admin_name.split()[1:]) if len(org_data.admin_name.split()) > 1 else "",
+            role="owner",
+            organization_id=new_org.id
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create user in Keycloak: {str(e)}")
+    
+    # Create user in local database
     new_user = models.User(
-        id=str(uuid.uuid4()),
+        id=user_id,
         email=org_data.admin_email,
         full_name=org_data.admin_name,
-        hashed_password=get_password_hash(org_data.password),
+        hashed_password=get_password_hash(org_data.password),  # Keep for legacy compatibility
         role="Owner",
         organization_id=new_org.id
     )
@@ -259,7 +331,7 @@ def onboard_tenant(org_data: schemas.OrgCreate, current_user: models.User = Depe
     }
 
 @app.patch("/admin/organizations/{org_id}/plan")
-def update_plan(org_id: str, plan_data: schemas.PlanUpdate, current_user: models.User = Depends(get_super_admin), db: Session = Depends(get_db)):
+def update_plan(org_id: str, plan_data: schemas.PlanUpdate, current_user: dict = Depends(require_super_admin), db: Session = Depends(get_db)):
     org = db.query(models.Organization).filter(models.Organization.id == org_id).first()
     if not org: raise HTTPException(status_code=404)
     org.plan = plan_data.plan
@@ -268,11 +340,11 @@ def update_plan(org_id: str, plan_data: schemas.PlanUpdate, current_user: models
 
 # --- PIPELINE ENDPOINTS ---
 @app.get("/pipelines")
-def get_pipelines(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(models.Pipeline).filter(models.Pipeline.organization_id == current_user.organization_id).all()
+def get_pipelines(current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
+    return db.query(models.Pipeline).filter(models.Pipeline.organization_id == current_user["organization_id"]).all()
 
 @app.post("/pipelines")
-async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     pipeline_id = str(uuid.uuid4())
     
     # Create Prefect deployment
@@ -281,7 +353,7 @@ async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: models
             pipeline_id=pipeline_id,
             pipeline_name=pipeline.name,
             frequency=pipeline.frequency,
-            organization_id=current_user.organization_id
+            organization_id=current_user["organization_id"]
         )
     except Exception as e:
         raise HTTPException(
@@ -292,8 +364,8 @@ async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: models
     # Create pipeline in database with Prefect deployment ID
     new_p = models.Pipeline(
         id=pipeline_id,
-        organization_id=current_user.organization_id,
-        created_by=current_user.id,
+        organization_id=current_user["organization_id"],
+        created_by=current_user["sub"],
         prefect_deployment_id=deployment_id,  # Store for future operations
         **pipeline.dict()
     )
@@ -303,9 +375,9 @@ async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: models
     return new_p
 
 @app.post("/pipelines/{id}/run")
-async def run_pipeline(id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     p = db.query(models.Pipeline).filter(models.Pipeline.id == id).first()
-    if not p or p.organization_id != current_user.organization_id:
+    if not p or p.organization_id != current_user["organization_id"]:
         raise HTTPException(status_code=404)
     
     # Trigger Prefect flow run
@@ -322,9 +394,9 @@ async def run_pipeline(id: str, current_user: models.User = Depends(get_current_
         )
 
 @app.get("/connectors")
-def get_connectors(type: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_connectors(type: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     connectors = db.query(models.Connector).filter(
-        models.Connector.organization_id == current_user.organization_id,
+        models.Connector.organization_id == current_user["organization_id"],
         models.Connector.connector_type == type
     ).all()
     
@@ -342,11 +414,11 @@ def get_connectors(type: str, current_user: models.User = Depends(get_current_us
     } for c in connectors]
 
 @app.post("/connectors")
-def create_connector(conn: schemas.ConnectorCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_connector(conn: schemas.ConnectorCreate, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     new_c = models.Connector(
         id=str(uuid.uuid4()),
-        organization_id=current_user.organization_id,
-        created_by=current_user.id,
+        organization_id=current_user["organization_id"],
+        created_by=current_user["sub"],
         **conn.dict()
     )
     db.add(new_c)
@@ -367,10 +439,10 @@ def create_connector(conn: schemas.ConnectorCreate, current_user: models.User = 
     }
 
 @app.delete("/connectors/{connector_id}")
-def delete_connector(connector_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_connector(connector_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     connector = db.query(models.Connector).filter(
         models.Connector.id == connector_id,
-        models.Connector.organization_id == current_user.organization_id
+        models.Connector.organization_id == current_user["organization_id"]
     ).first()
     
     if not connector:
@@ -381,7 +453,7 @@ def delete_connector(connector_id: str, current_user: models.User = Depends(get_
     return {"status": "deleted"}
 
 @app.get("/connectors/{connector_id}/schema")
-def introspect_connector_schema(connector_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def introspect_connector_schema(connector_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     """
     Use dlt to introspect available tables/resources from a connector.
     Returns what dlt discovers automatically.
@@ -391,7 +463,7 @@ def introspect_connector_schema(connector_id: str, current_user: models.User = D
     
     connector = db.query(models.Connector).filter(
         models.Connector.id == connector_id,
-        models.Connector.organization_id == current_user.organization_id
+        models.Connector.organization_id == current_user["organization_id"]
     ).first()
     
     if not connector:
@@ -609,15 +681,12 @@ def test_connection(data: dict):
 import secrets
 
 @app.post("/team/invite")
-def invite_team_member(invite: schemas.InviteUserRequest, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Check permissions (Owner/Admin only)
-    if current_user.role not in ["Owner", "Admin", "SuperAdmin"]:
-        raise HTTPException(status_code=403, detail="Only Owner/Admin can invite")
+async def invite_team_member(invite: schemas.InviteUserRequest, current_user: dict = Depends(require_org_admin), db: Session = Depends(get_db)):
     
     # Check for existing user
     existing = db.query(models.User).filter(
         models.User.email == invite.email,
-        models.User.organization_id == current_user.organization_id
+        models.User.organization_id == current_user["organization_id"]
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="User already in organization")
@@ -625,7 +694,7 @@ def invite_team_member(invite: schemas.InviteUserRequest, current_user: models.U
     # Check for pending invite
     pending = db.query(models.TeamInvitation).filter(
         models.TeamInvitation.email == invite.email,
-        models.TeamInvitation.organization_id == current_user.organization_id,
+        models.TeamInvitation.organization_id == current_user["organization_id"],
         models.TeamInvitation.status == "Pending"
     ).first()
     if pending:
@@ -635,10 +704,10 @@ def invite_team_member(invite: schemas.InviteUserRequest, current_user: models.U
     token = secrets.token_urlsafe(32)
     invitation = models.TeamInvitation(
         id=str(uuid.uuid4()),
-        organization_id=current_user.organization_id,
+        organization_id=current_user["organization_id"],
         email=invite.email,
         role=invite.role,
-        invited_by=current_user.id,
+        invited_by=current_user["sub"],
         token=token,
         status="Pending",
         expires_at=datetime.utcnow() + timedelta(days=7)
@@ -652,17 +721,17 @@ def invite_team_member(invite: schemas.InviteUserRequest, current_user: models.U
     return {"message": "Invitation sent", "id": invitation.id, "token": token}
 
 @app.get("/team/invitations")
-def list_invitations(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_invitations(current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     invitations = db.query(models.TeamInvitation).filter(
-        models.TeamInvitation.organization_id == current_user.organization_id
+        models.TeamInvitation.organization_id == current_user["organization_id"]
     ).all()
     return invitations
 
 @app.delete("/team/invitations/{invitation_id}")
-def cancel_invitation(invitation_id: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def cancel_invitation(invitation_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     invitation = db.query(models.TeamInvitation).filter(
         models.TeamInvitation.id == invitation_id,
-        models.TeamInvitation.organization_id == current_user.organization_id
+        models.TeamInvitation.organization_id == current_user["organization_id"]
     ).first()
     
     if not invitation:
@@ -695,7 +764,7 @@ def validate_invite(token: str, db: Session = Depends(get_db)):
     }
 
 @app.post("/auth/accept-invite")
-def accept_invite(data: schemas.AcceptInviteRequest, db: Session = Depends(get_db)):
+async def accept_invite(data: schemas.AcceptInviteRequest, db: Session = Depends(get_db)):
     invitation = db.query(models.TeamInvitation).filter(
         models.TeamInvitation.token == data.token,
         models.TeamInvitation.status == "Pending"
@@ -714,12 +783,26 @@ def accept_invite(data: schemas.AcceptInviteRequest, db: Session = Depends(get_d
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
     
-    # Create user
+    # Create user in Keycloak first
+    user_id = str(uuid.uuid4())
+    try:
+        await keycloak_auth.create_user(
+            email=invitation.email,
+            password=data.password,
+            first_name=data.full_name.split()[0] if data.full_name else "",
+            last_name=" ".join(data.full_name.split()[1:]) if len(data.full_name.split()) > 1 else "",
+            role=invitation.role.lower(),
+            organization_id=invitation.organization_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create user in Keycloak: {str(e)}")
+    
+    # Create user in local database
     new_user = models.User(
-        id=str(uuid.uuid4()),
+        id=user_id,
         email=invitation.email,
         full_name=data.full_name,
-        hashed_password=get_password_hash(data.password),
+        hashed_password=get_password_hash(data.password),  # Keep for legacy compatibility
         role=invitation.role,
         organization_id=invitation.organization_id,
         is_active=True
@@ -731,13 +814,8 @@ def accept_invite(data: schemas.AcceptInviteRequest, db: Session = Depends(get_d
     invitation.accepted_at = datetime.utcnow()
     db.commit()
     
-    # Log them in
-    access_token = create_access_token(data={"sub": new_user.email})
-    refresh_token = create_refresh_token(data={"sub": new_user.email})
-    
+    # Return message to redirect to Keycloak login
     return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": new_user
+        "message": "User created successfully. Please log in with Keycloak.",
+        "redirect_to_login": True
     }

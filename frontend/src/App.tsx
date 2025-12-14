@@ -7,6 +7,7 @@ import { DataInsights } from './components/DataInsights';
 import { DataLineage } from './components/DataLineage';
 import { LandingPage } from './components/LandingPage';
 import { Auth } from './components/Auth';
+import { OAuthCallback } from './components/OAuthCallback';
 import { ConnectorManager } from './components/ConnectorManager';
 import { BackendViewer } from './components/BackendViewer';
 import { Settings } from './components/Settings';
@@ -15,8 +16,9 @@ import { MOCK_PIPELINES, MOCK_SOURCES, MOCK_DESTINATIONS, MOCK_TEAM, MOCK_AUDIT_
 import { Pipeline, PipelineStatus, User, ConnectorInstance, TeamMember, AuditLog, UserRole, Organization, RunHistory } from './types';
 import { ArrowLeft, Play, ArrowRight, Clock, CheckCircle, XCircle, Terminal, Download, Zap } from 'lucide-react';
 import { api } from './services/api';
+import { keycloakService } from './services/keycloak';
 
-type ViewState = 'landing' | 'login' | 'register' | 'dashboard' | 'sources' | 'destinations' | 'pipelines' | 'observability' | 'insights' | 'settings' | 'pipeline-detail' | 'backend' | 'super-admin';
+type ViewState = 'landing' | 'login' | 'register' | 'callback' | 'dashboard' | 'sources' | 'destinations' | 'pipelines' | 'observability' | 'insights' | 'settings' | 'pipeline-detail' | 'backend' | 'super-admin';
 
 function App() {
   // Auth State
@@ -191,11 +193,17 @@ function App() {
     triggerToast(`Subscription updated to ${newPlan}`);
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setActiveView('landing');
+  const handleLogout = async () => {
+    // Use Keycloak logout if using Keycloak auth
+    if (localStorage.getItem('access_token')) {
+      await keycloakService.logout();
+    } else {
+      // Legacy logout
+      setUser(null);
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setActiveView('landing');
+    }
   };
 
   const handleCreatePipeline = async (newPipeline: Pipeline) => {
@@ -260,6 +268,22 @@ function App() {
     setPipelineDetailTab('overview');
     setActiveView('pipeline-detail');
   };
+
+  // Handle OAuth callback
+  if (window.location.pathname === '/callback') {
+    return (
+      <OAuthCallback 
+        onSuccess={(user) => {
+          setUser(user);
+          // User will be redirected by OAuthCallback component
+        }}
+        onError={(error) => {
+          console.error('OAuth callback error:', error);
+          triggerToast(error);
+        }}
+      />
+    );
+  }
 
   if (!user) {
     if (activeView === 'login') return <Auth mode="login" onLogin={handleLoginAuth} onRegister={async () => {}} onBack={() => setActiveView('landing')} onSwitchMode={() => {}} />;

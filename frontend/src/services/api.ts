@@ -9,13 +9,15 @@ const IS_LIVE = !!API_URL;
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+  'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || localStorage.getItem('token') || '')
 });
 
 // Global error handler for 401 responses
 const handleResponse = async (response: Response) => {
   if (response.status === 401) {
     // Token expired or invalid - logout user
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     window.location.href = '/';
@@ -52,7 +54,12 @@ export const api = {
         
         if (!res.ok) throw new Error('Invalid credentials');
         const data = await res.json();
-        // Store token for future requests
+        // Store tokens for future requests (legacy endpoint)
+        localStorage.setItem('access_token', data.access_token);
+        if (data.refresh_token) {
+          localStorage.setItem('refresh_token', data.refresh_token);
+        }
+        // Keep legacy token for backward compatibility
         localStorage.setItem('token', data.access_token);
         return data.user;
       }

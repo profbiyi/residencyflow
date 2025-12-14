@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
-import { Zap, ArrowLeft, Mail, Lock, AlertCircle } from 'lucide-react';
+import { Zap, ArrowLeft, Mail, Lock, AlertCircle, Shield } from 'lucide-react';
+import { keycloakService } from '../services/keycloak';
 
 interface Props {
   mode: 'login' | 'register';
@@ -15,8 +16,22 @@ export const Auth: React.FC<Props> = ({ mode, onLogin, onBack }) => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [useKeycloak, setUseKeycloak] = useState(true); // Default to Keycloak
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleKeycloakLogin = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      await keycloakService.login();
+      // User will be redirected to Keycloak
+    } catch (err: any) {
+      setError(err.message || 'Failed to initialize login');
+      setIsLoading(false);
+    }
+  };
+
+  const handleLegacySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
@@ -58,7 +73,37 @@ export const Auth: React.FC<Props> = ({ mode, onLogin, onBack }) => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          {useKeycloak ? (
+            <div className="space-y-4">
+              <button 
+                type="button"
+                onClick={handleKeycloakLogin}
+                disabled={isLoading}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-3 rounded-lg transition-all shadow-[0_4px_14px_0_rgba(37,99,235,0.39)] flex items-center justify-center gap-2"
+              >
+                <Shield size={18} />
+                {isLoading ? 'Redirecting...' : 'Sign in with SSO'}
+              </button>
+
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-800"></div>
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-slate-900 px-2 text-slate-500">OR</span>
+                </div>
+              </div>
+
+              <button 
+                type="button"
+                onClick={() => setUseKeycloak(false)}
+                className="w-full text-slate-400 hover:text-white text-sm transition-colors"
+              >
+                Use email and password
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleLegacySubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase">Email Address</label>
               <div className="relative">
@@ -96,7 +141,16 @@ export const Auth: React.FC<Props> = ({ mode, onLogin, onBack }) => {
             >
               {isLoading ? 'Processing...' : 'Log In'}
             </button>
+
+            <button 
+              type="button"
+              onClick={() => setUseKeycloak(true)}
+              className="w-full text-slate-400 hover:text-white text-sm transition-colors mt-4"
+            >
+              ← Back to SSO login
+            </button>
           </form>
+          )}
 
           <div className="mt-6 p-4 bg-slate-950 rounded-lg border border-slate-800 text-xs text-slate-500 text-center">
              <p className="font-semibold mb-1 text-slate-400">🔐 Protected Platform</p>
