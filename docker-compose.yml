@@ -85,55 +85,47 @@ services:
       PREFECT_API_URL: http://prefect:4200/api
     ports:
       - "4200:4200"
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - backend
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health').read(); print('ok')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
 
   prefect_init:
     image: prefecthq/prefect:3-python3.11
     container_name: residencyflow-prefect-init
     depends_on:
-      - prefect
+      prefect:
+        condition: service_healthy
     environment:
       PREFECT_API_URL: http://prefect:4200/api
+      PREFECT_WORK_POOL: default-pool
     networks:
       - backend
     volumes:
       - ./backend:/app
     working_dir: /app
-    entrypoint: >
-      /bin/sh -c "
-      prefect config set PREFECT_API_URL=http://prefect:4200/api &&
-      prefect work-pool create default-pool -t process || true &&
-      python prefect_deploy.py &&
-      echo 'Prefect deployment applied successfully'
-      "
+    command: python prefect_bootstrap.py
     restart: "no"
 
   worker:
     image: prefecthq/prefect:3-python3.11
     container_name: residencyflow-worker
     depends_on:
-      - prefect_init
+      prefect_init:
+        condition: service_completed_successfully
     environment:
       PREFECT_API_URL: http://prefect:4200/api
+      PREFECT_WORK_POOL: default-pool
       CONTROL_PLANE_API_URL: http://api:8000
       WORKER_SHARED_KEY: ${WORKER_SHARED_KEY}
-      # plus your MinIO/dlt env as needed:
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      DLT_DATA_DIR: /app/dlt_data
-      DLT_PIPELINE_DIR: /app/pipelines
     networks:
       - backend
     volumes:
       - ./backend:/app
-      - dlt_data:/app/dlt_data
-      - pipeline_data:/app/pipelines
     working_dir: /app
     command: prefect worker start --pool default-pool
     restart: unless-stopped
