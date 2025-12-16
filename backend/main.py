@@ -121,7 +121,16 @@ async def get_current_user_unified(keycloak_user: dict = Depends(get_current_use
     
     # Fallback to legacy auth
     try:
-        user = get_current_user(token, db)
+        # Manually decode JWT since token is already extracted
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if user is None:
+            raise HTTPException(status_code=401, detail="User not found")
+        
         # Convert User model to dict format
         return {
             "id": user.id,
@@ -132,8 +141,10 @@ async def get_current_user_unified(keycloak_user: dict = Depends(get_current_use
             "role": user.role,
             "roles": [user.role] if user.role else []
         }
-    except:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid credentials: {str(e)}")
 
 def get_super_admin(user: models.User = Depends(get_current_user)):
     if user.role != "SuperAdmin":
@@ -367,13 +378,34 @@ def update_plan(org_id: str, plan_data: schemas.PlanUpdate, current_user: dict =
 # --- PIPELINE ENDPOINTS ---
 @app.get("/pipelines")
 def get_pipelines(current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
-    return db.query(models.Pipeline).filter(models.Pipeline.organization_id == current_user["organization_id"]).all()
+    pipelines = db.query(models.Pipeline).filter(models.Pipeline.organization_id == current_user["organization_id"]).all()
+    
+    # Format for frontend (camelCase)
+    return [{
+        "id": p.id,
+        "name": p.name,
+        "sourceId": p.source_id,
+        "destinationId": p.destination_id,
+        "syncMode": p.sync_mode,
+        "frequency": p.frequency,
+        "status": p.status,
+        "rowsProcessed": p.rows_processed or 0,
+        "lastRun": p.last_run,
+        "organizationId": p.organization_id,
+        "createdBy": p.created_by,
+        "schemaPolicy": p.schema_policy,
+        "notificationConfig": p.notification_config,
+        "transformationConfig": p.transformation_config,
+        "prefectDeploymentId": p.prefect_deployment_id,
+        "lastPrefectRunId": p.last_prefect_run_id
+    } for p in pipelines]
 
 @app.post("/pipelines")
 async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
     pipeline_id = str(uuid.uuid4())
     
-    # Create Prefect deployment
+    # Create Prefect deployment (optional)
+    deployment_id = None
     try:
         deployment_id = await prefect_orchestrator.create_pipeline_deployment(
             pipeline_id=pipeline_id,
@@ -381,24 +413,42 @@ async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict =
             frequency=pipeline.frequency,
             organization_id=current_user["organization_id"]
         )
+        print(f"✅ Prefect deployment created: {deployment_id}")
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create Prefect deployment: {str(e)}"
-        )
+        print(f"⚠️ Prefect deployment failed (pipeline will still be created): {str(e)}")
+        # Don't fail - pipelines can work without Prefect orchestration
     
-    # Create pipeline in database with Prefect deployment ID
+    # Create pipeline in database
     new_p = models.Pipeline(
         id=pipeline_id,
         organization_id=current_user["organization_id"],
         created_by=current_user["sub"],
-        prefect_deployment_id=deployment_id,  # Store for future operations
+        prefect_deployment_id=deployment_id,  # Will be None if Prefect unavailable
         **pipeline.dict()
     )
     db.add(new_p)
     db.commit()
     db.refresh(new_p)
-    return new_p
+    
+    # Format for frontend (camelCase)
+    return {
+        "id": new_p.id,
+        "name": new_p.name,
+        "sourceId": new_p.source_id,
+        "destinationId": new_p.destination_id,
+        "syncMode": new_p.sync_mode,
+        "frequency": new_p.frequency,
+        "status": new_p.status,
+        "rowsProcessed": new_p.rows_processed or 0,
+        "lastRun": new_p.last_run,
+        "organizationId": new_p.organization_id,
+        "createdBy": new_p.created_by,
+        "schemaPolicy": new_p.schema_policy,
+        "notificationConfig": new_p.notification_config,
+        "transformationConfig": new_p.transformation_config,
+        "prefectDeploymentId": new_p.prefect_deployment_id,
+        "lastPrefectRunId": new_p.last_prefect_run_id
+    }
 
 @app.post("/pipelines/{id}/run")
 async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):

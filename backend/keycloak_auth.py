@@ -3,7 +3,7 @@ import os
 import httpx
 from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2AuthorizationCodeBearer
+from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from datetime import datetime
 import json
@@ -305,15 +305,16 @@ keycloak_auth = KeycloakAuth()
 
 # FastAPI Dependency
 async def get_current_user_keycloak(
-    token: str = Depends(OAuth2AuthorizationCodeBearer(
-        authorizationUrl=f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/auth",
-        tokenUrl=TOKEN_URL
-    ))
+    token: str = Depends(OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False))
 ):
     """
     FastAPI dependency to get current user from Keycloak token.
     Fallbacks to None if Keycloak is unavailable (allows legacy auth).
     """
+    # If no token provided, return None immediately
+    if not token:
+        return None
+    
     payload = await keycloak_auth.verify_token(token)
     
     if not payload:
@@ -322,9 +323,11 @@ async def get_current_user_keycloak(
     
     return {
         "id": payload.get("sub"),  # Keycloak user ID
+        "sub": payload.get("sub"),  # Add sub for consistency
         "email": payload.get("email"),
         "name": payload.get("name"),
         "organization_id": payload.get("organization_id"),  # Custom attribute
+        "role": keycloak_auth.extract_roles(payload)[0] if keycloak_auth.extract_roles(payload) else None,
         "roles": keycloak_auth.extract_roles(payload),
         "token_payload": payload
     }

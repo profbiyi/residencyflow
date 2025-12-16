@@ -4,12 +4,18 @@ import dlt
 import hashlib
 import polars as pl
 from prefect import flow, task, get_run_logger
-from prefect.deployments import Deployment
-from prefect.server.schemas.schedules import CronSchedule
 from database import SessionLocal
 import models
 from datetime import datetime
 from typing import Optional, List
+
+# Set Prefect API URL for internal Prefect client
+if "PREFECT_API_URL" in os.environ:
+    # Use the full URL format that Prefect expects
+    os.environ["PREFECT_API_URL"] = os.getenv("PREFECT_API_URL")
+else:
+    # Default to local Prefect server
+    os.environ["PREFECT_API_URL"] = "http://prefect:4200/api"
 
 # Configure DLT to use Polars and MinIO for state
 os.environ["DLT__DATA_FRAME_LIBRARY"] = "polars"
@@ -275,15 +281,18 @@ def pipeline_sync_flow(pipeline_id: str):
 
 if __name__ == "__main__":
     """
-    Deployment script for Prefect.
-    This will be run once to register flows with Prefect Server.
+    Serve the pipeline_sync_flow so it can be triggered by the API.
+    This registers the flow with Prefect and keeps it available.
     """
-    from prefect.client.schemas.schedules import IntervalSchedule
-    from datetime import timedelta
+    print("🚀 Starting Prefect flow server for ResidencyFlow...")
+    print(f"   Flow: pipeline_sync_flow")
+    print(f"   Listening for flow run requests...\n")
     
-    print("Registering pipeline_sync_flow with Prefect...")
-    
-    # The actual deployments will be created dynamically by the API
-    # when users create pipelines with schedules
-    
-    print("✅ Worker ready - waiting for Prefect to schedule flows")
+    # Serve the flow - this registers it with Prefect and makes it available
+    pipeline_sync_flow.serve(
+        name="residencyflow-pipeline-sync",
+        tags=["production", "dlt", "pipelines"],
+        parameters={},
+        pause_on_shutdown=False,
+        print_starting_message=True
+    )

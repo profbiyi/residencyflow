@@ -210,7 +210,12 @@ function App() {
     if (!user || !user.organizationId) return; // SuperAdmin can't create pipelines directly
     const p = { ...newPipeline, status: PipelineStatus.Running, organizationId: user.organizationId, createdBy: user.id };
     const created = await api.pipelines.create(p);
-    setPipelines([created, ...pipelines]);
+    console.log('✅ Pipeline created:', created);
+    
+    // Refresh the full pipeline list from API to ensure consistency
+    const refreshedPipelines = await api.pipelines.list();
+    setPipelines(refreshedPipelines);
+    
     logAction('Create Pipeline', newPipeline.name);
     setShowWizard(false);
     triggerToast("Pipeline Deployed & Started");

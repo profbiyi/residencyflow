@@ -3,7 +3,7 @@ import { InsightResult } from "../types";
 
 // Note: In a real production app, ensure this is handled via a secure backend proxy or carefully managed environment variables.
 // For this demo, we assume process.env.API_KEY is available.
-const apiKey = process.env.API_KEY || ''; 
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '';
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
