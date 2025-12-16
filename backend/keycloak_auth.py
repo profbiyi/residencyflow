@@ -2,8 +2,7 @@
 import os
 import httpx
 from typing import Optional, Dict, Any
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, status, Header
 from jose import jwt, JWTError
 from datetime import datetime
 import json
@@ -303,23 +302,29 @@ class KeycloakAuth:
 keycloak_auth = KeycloakAuth()
 
 
+# Helper function to extract Bearer token
+def get_bearer_token(authorization: str = Header(None)) -> str:
+    """Extract Bearer token from Authorization header."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    return authorization.split(" ", 1)[1].strip()
+
+
 # FastAPI Dependency
 async def get_current_user_keycloak(
-    token: str = Depends(OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False))
+    token: str = Depends(get_bearer_token)
 ):
     """
     FastAPI dependency to get current user from Keycloak token.
-    Fallbacks to None if Keycloak is unavailable (allows legacy auth).
+    Requires valid Bearer token - no fallback.
     """
-    # If no token provided, return None immediately
-    if not token:
-        return None
-    
     payload = await keycloak_auth.verify_token(token)
     
     if not payload:
-        # Keycloak not available - return None to fallback to legacy auth
-        return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
     
     return {
         "id": payload.get("sub"),  # Keycloak user ID
@@ -336,12 +341,7 @@ async def get_current_user_keycloak(
 async def require_super_admin(current_user: dict = Depends(get_current_user_keycloak)):
     """
     FastAPI dependency to require super admin role.
-    Falls back to legacy auth if Keycloak is unavailable.
     """
-    if not current_user:
-        # Keycloak unavailable - will use legacy auth in main.py
-        return None
-    
     if not keycloak_auth.is_super_admin(current_user["roles"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -353,12 +353,7 @@ async def require_super_admin(current_user: dict = Depends(get_current_user_keyc
 async def require_org_admin(current_user: dict = Depends(get_current_user_keycloak)):
     """
     FastAPI dependency to require organization admin role.
-    Falls back to legacy auth if Keycloak is unavailable.
     """
-    if not current_user:
-        # Keycloak unavailable - will use legacy auth in main.py
-        return None
-    
     if not keycloak_auth.is_org_admin(current_user["roles"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

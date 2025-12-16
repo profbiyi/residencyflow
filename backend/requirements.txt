@@ -6,13 +6,11 @@ pydantic[email]>=2.6.0
 python-multipart==0.0.9
 requests==2.31.0
 python-jose[cryptography]
-passlib[bcrypt]
-bcrypt==4.0.1
 python-keycloak>=3.9.0
 redis>=5.0.0
-prefect>=3.0.0
+prefect>=3,<4
 httpx>=0.25.0
-dlt[sql_database,snowflake,filesystem]>=1.20.0
+dlt>=0
 sqlalchemy>=2.0.23
 connectorx
 duckdb>=0.9.2

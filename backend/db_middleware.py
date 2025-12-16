@@ -160,7 +160,7 @@ class AutoRLSMiddleware(BaseHTTPMiddleware):
     
     async def dispatch(self, request: StarletteRequest, call_next):
         # Skip RLS for public endpoints
-        if request.url.path in ["/", "/health", "/auth/config", "/auth/callback", "/auth/token"]:
+        if request.url.path in ["/", "/health", "/auth/config", "/auth/callback"]:
             return await call_next(request)
         
         # Get Authorization header

@@ -1,23 +1,50 @@
 # backend/main.py
 from fastapi import FastAPI, Depends, HTTPException, status, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 import models, schemas
 import uuid
-import jwt # PyJWT
-from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import os
+import requests
 from prefect_client import prefect_orchestrator
 from keycloak_auth import keycloak_auth, get_current_user_keycloak, require_super_admin, require_org_admin
 
-# SECURITY CONFIG
-SECRET_KEY = os.getenv("SECRET_KEY", "super_secret_key_change_me")
-ALGORITHM = "HS256"
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+# Prefect 3 Configuration
+PREFECT_API_URL = os.getenv("PREFECT_API_URL", "http://prefect:4200/api").rstrip("/")
+PREFECT_DEPLOYMENT_NAME = os.getenv("PREFECT_DEPLOYMENT_NAME", "execute_pipeline/execute-pipeline")
+WORKER_SHARED_KEY = os.getenv("WORKER_SHARED_KEY", "")
+
+def prefect_create_run(run_id: str) -> str:
+    """Create a Prefect flow run from deployment (Prefect 3 style)"""
+    # Find deployment by name
+    dep_q = requests.post(
+        f"{PREFECT_API_URL}/deployments/filter",
+        json={"deployments": {"name": {"any_": ["execute-pipeline"]}}},
+        timeout=30,
+    )
+    dep_q.raise_for_status()
+    deps = dep_q.json()
+    if not deps:
+        raise RuntimeError("Prefect deployment 'execute-pipeline' not found. Did prefect_init run?")
+    deployment_id = deps[0]["id"]
+
+    fr = requests.post(
+        f"{PREFECT_API_URL}/deployments/{deployment_id}/create_flow_run",
+        json={"parameters": {"run_id": run_id}},
+        timeout=30,
+    )
+    fr.raise_for_status()
+    return fr.json()["id"]
+
+def verify_worker_key(x_worker_key: str = Header(None)):
+    """Verify internal worker authentication"""
+    if not WORKER_SHARED_KEY:
+        raise HTTPException(status_code=500, detail="Worker auth not configured")
+    if x_worker_key != WORKER_SHARED_KEY:
+        raise HTTPException(status_code=401, detail="Invalid worker key")
+    return True
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title="ResidencyFlow API")
@@ -75,81 +102,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- AUTH UTILS ---
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def create_access_token(data: dict, expires_delta: timedelta = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(hours=24)  # 24 hours for better UX
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def create_refresh_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=30)  # 30 days for refresh
-    to_encode.update({"exp": expire, "type": "refresh"})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Legacy JWT-based authentication"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None: raise HTTPException(status_code=401)
-    except:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if user is None: raise HTTPException(status_code=401)
-    return user
-
-async def get_current_user_unified(keycloak_user: dict = Depends(get_current_user_keycloak), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """
-    Unified auth: Try Keycloak first, fallback to legacy JWT.
-    Returns dict format for consistency.
-    """
-    # If Keycloak auth worked
-    if keycloak_user:
-        return keycloak_user
-    
-    # Fallback to legacy auth
-    try:
-        # Manually decode JWT since token is already extracted
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-        user = db.query(models.User).filter(models.User.email == email).first()
-        if user is None:
-            raise HTTPException(status_code=401, detail="User not found")
-        
-        # Convert User model to dict format
-        return {
-            "id": user.id,
-            "sub": user.id,
-            "email": user.email,
-            "name": user.full_name,
-            "organization_id": user.organization_id,
-            "role": user.role,
-            "roles": [user.role] if user.role else []
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid credentials: {str(e)}")
-
-def get_super_admin(user: models.User = Depends(get_current_user)):
-    if user.role != "SuperAdmin":
-        raise HTTPException(status_code=403, detail="Super Admin privileges required")
-    return user
 
 # --- AUTH ENDPOINTS (Keycloak OIDC) ---
 @app.post("/auth/callback")
@@ -234,40 +186,6 @@ def get_auth_config():
         "token_endpoint": f"{os.getenv('KEYCLOAK_URL', 'http://localhost:8080')}/realms/{os.getenv('KEYCLOAK_REALM', 'residencyflow')}/protocol/openid-connect/token"
     }
 
-# --- LEGACY AUTH (kept for backward compatibility during migration) ---
-@app.post("/auth/token")
-def login_legacy(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Legacy password-based login (deprecated - use Keycloak OIDC)"""
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-    
-    access_token = create_access_token(data={"sub": user.email})
-    refresh_token = create_refresh_token(data={"sub": user.email})
-    
-    # Get organization name if user belongs to one
-    company_name = user.full_name  # Default for SuperAdmin
-    if user.organization_id:
-        org = db.query(models.Organization).filter(models.Organization.id == user.organization_id).first()
-        if org:
-            company_name = org.name
-    
-    # Format user object for frontend compatibility
-    user_data = {
-        "id": user.id,
-        "email": user.email,
-        "name": user.full_name,
-        "companyName": company_name,
-        "organizationId": user.organization_id,
-        "role": user.role
-    }
-    
-    return {
-        "access_token": access_token, 
-        "refresh_token": refresh_token,
-        "token_type": "bearer", 
-        "user": user_data
-    }
 
 @app.get("/")
 def read_root():
@@ -348,7 +266,7 @@ async def onboard_tenant(org_data: schemas.OrgCreate, current_user: dict = Depen
         id=user_id,
         email=org_data.admin_email,
         full_name=org_data.admin_name,
-        hashed_password=get_password_hash(org_data.password),  # Keep for legacy compatibility
+        hashed_password="",  # No longer used - Keycloak handles passwords
         role="Owner",
         organization_id=new_org.id
     )
@@ -377,7 +295,7 @@ def update_plan(org_id: str, plan_data: schemas.PlanUpdate, current_user: dict =
 
 # --- PIPELINE ENDPOINTS ---
 @app.get("/pipelines")
-def get_pipelines(current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+def get_pipelines(current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     pipelines = db.query(models.Pipeline).filter(models.Pipeline.organization_id == current_user["organization_id"]).all()
     
     # Format for frontend (camelCase)
@@ -401,7 +319,7 @@ def get_pipelines(current_user: dict = Depends(get_current_user_unified), db: Se
     } for p in pipelines]
 
 @app.post("/pipelines")
-async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     pipeline_id = str(uuid.uuid4())
     
     # Create Prefect deployment (optional)
@@ -451,7 +369,7 @@ async def create_pipeline(pipeline: schemas.PipelineCreate, current_user: dict =
     }
 
 @app.post("/pipelines/{id}/run")
-async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     p = db.query(models.Pipeline).filter(models.Pipeline.id == id).first()
     if not p or p.organization_id != current_user["organization_id"]:
         raise HTTPException(status_code=404)
@@ -470,7 +388,7 @@ async def run_pipeline(id: str, current_user: dict = Depends(get_current_user_un
         )
 
 @app.get("/connectors")
-def get_connectors(type: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+def get_connectors(type: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     connectors = db.query(models.Connector).filter(
         models.Connector.organization_id == current_user["organization_id"],
         models.Connector.connector_type == type
@@ -490,7 +408,7 @@ def get_connectors(type: str, current_user: dict = Depends(get_current_user_unif
     } for c in connectors]
 
 @app.post("/connectors")
-def create_connector(conn: schemas.ConnectorCreate, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+def create_connector(conn: schemas.ConnectorCreate, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     new_c = models.Connector(
         id=str(uuid.uuid4()),
         organization_id=current_user["organization_id"],
@@ -515,7 +433,7 @@ def create_connector(conn: schemas.ConnectorCreate, current_user: dict = Depends
     }
 
 @app.delete("/connectors/{connector_id}")
-def delete_connector(connector_id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+def delete_connector(connector_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     connector = db.query(models.Connector).filter(
         models.Connector.id == connector_id,
         models.Connector.organization_id == current_user["organization_id"]
@@ -529,7 +447,7 @@ def delete_connector(connector_id: str, current_user: dict = Depends(get_current
     return {"status": "deleted"}
 
 @app.get("/connectors/{connector_id}/schema")
-def introspect_connector_schema(connector_id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+def introspect_connector_schema(connector_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     """
     Use dlt to introspect available tables/resources from a connector.
     Returns what dlt discovers automatically.
@@ -797,14 +715,14 @@ async def invite_team_member(invite: schemas.InviteUserRequest, current_user: di
     return {"message": "Invitation sent", "id": invitation.id, "token": token}
 
 @app.get("/team/invitations")
-def list_invitations(current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+def list_invitations(current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     invitations = db.query(models.TeamInvitation).filter(
         models.TeamInvitation.organization_id == current_user["organization_id"]
     ).all()
     return invitations
 
 @app.delete("/team/invitations/{invitation_id}")
-def cancel_invitation(invitation_id: str, current_user: dict = Depends(get_current_user_unified), db: Session = Depends(get_db)):
+def cancel_invitation(invitation_id: str, current_user: dict = Depends(get_current_user_keycloak), db: Session = Depends(get_db)):
     invitation = db.query(models.TeamInvitation).filter(
         models.TeamInvitation.id == invitation_id,
         models.TeamInvitation.organization_id == current_user["organization_id"]
@@ -878,7 +796,7 @@ async def accept_invite(data: schemas.AcceptInviteRequest, db: Session = Depends
         id=user_id,
         email=invitation.email,
         full_name=data.full_name,
-        hashed_password=get_password_hash(data.password),  # Keep for legacy compatibility
+        hashed_password="",  # No longer used - Keycloak handles passwords
         role=invitation.role,
         organization_id=invitation.organization_id,
         is_active=True
@@ -895,3 +813,38 @@ async def accept_invite(data: schemas.AcceptInviteRequest, db: Session = Depends
         "message": "User created successfully. Please log in with Keycloak.",
         "redirect_to_login": True
     }
+
+# --- INTERNAL WORKER ENDPOINTS ---
+@app.get("/internal/runs/{run_id}/context")
+def get_run_context(run_id: str, _auth: bool = Depends(verify_worker_key), db: Session = Depends(get_db)):
+    """
+    Internal endpoint for workers to fetch run context.
+    Returns everything needed to execute the pipeline.
+    """
+    # TODO: Implement fetching run context from database
+    # This should return source config, destination config, pipeline config, etc.
+    return {
+        "run_id": run_id,
+        "tenant_id": "placeholder",
+        "pipeline_id": "placeholder",
+        "source": {},
+        "destination": {},
+        "bucket_url": os.getenv("MINIO_ENDPOINT", "")
+    }
+
+@app.post("/internal/runs/{run_id}/status")
+def update_run_status(run_id: str, payload: dict = Body(...), _auth: bool = Depends(verify_worker_key), db: Session = Depends(get_db)):
+    """
+    Internal endpoint for workers to update run status.
+    """
+    status = payload.get("status")
+    detail = payload.get("detail", {})
+    
+    # TODO: Update run status in database
+    # pipeline_run = db.query(models.PipelineRun).filter(models.PipelineRun.id == run_id).first()
+    # if pipeline_run:
+    #     pipeline_run.status = status
+    #     pipeline_run.detail = detail
+    #     db.commit()
+    
+    return {"message": "Status updated", "run_id": run_id, "status": status}

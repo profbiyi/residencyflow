@@ -37,7 +37,7 @@ services:
       - backend
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} PING | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -78,50 +78,64 @@ services:
   # ===================
 
   prefect:
-    image: prefecthq/prefect:2-python3.11
+    image: prefecthq/prefect:3-python3.11
     container_name: residencyflow-prefect
-    command: prefect server start --host 0.0.0.0
+    command: prefect server start --host 0.0.0.0 --port 4200
     environment:
-      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${POSTGRES_USER:-residency}:${POSTGRES_PASSWORD}@postgres:5432/prefect
-      PREFECT_SERVER_API_HOST: 0.0.0.0
-      PREFECT_UI_API_URL: http://localhost:4200/api
+      PREFECT_API_URL: http://prefect:4200/api
     ports:
       - "4200:4200"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  prefect_init:
+    image: prefecthq/prefect:3-python3.11
+    container_name: residencyflow-prefect-init
+    depends_on:
+      - prefect
+    environment:
+      PREFECT_API_URL: http://prefect:4200/api
     networks:
       - backend
     volumes:
-      - prefect_data:/root/.prefect
-    restart: unless-stopped
+      - ./backend:/app
+    working_dir: /app
+    entrypoint: >
+      /bin/sh -c "
+      prefect config set PREFECT_API_URL=http://prefect:4200/api &&
+      prefect work-pool create default-pool -t process || true &&
+      python prefect_deploy.py &&
+      echo 'Prefect deployment applied successfully'
+      "
+    restart: "no"
 
   worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
+    image: prefecthq/prefect:3-python3.11
     container_name: residencyflow-worker
+    depends_on:
+      - prefect_init
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-residency}:${POSTGRES_PASSWORD}@postgres:5432/residencyflow
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      PREFECT_API_URL: http://prefect:4200/api
+      CONTROL_PLANE_API_URL: http://api:8000
+      WORKER_SHARED_KEY: ${WORKER_SHARED_KEY}
+      # plus your MinIO/dlt env as needed:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      PREFECT_API_URL: http://prefect:4200/api
       DLT_DATA_DIR: /app/dlt_data
       DLT_PIPELINE_DIR: /app/pipelines
-    depends_on:
-      - postgres
-      - redis
-      - minio
-      - prefect
     networks:
       - backend
     volumes:
+      - ./backend:/app
       - dlt_data:/app/dlt_data
       - pipeline_data:/app/pipelines
+    working_dir: /app
+    command: prefect worker start --pool default-pool
     restart: unless-stopped
 
   minio:
@@ -215,7 +229,7 @@ services:
     restart: unless-stopped
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:2.9.8
     container_name: residencyflow-loki
     ports:
       - "3100:3100"
