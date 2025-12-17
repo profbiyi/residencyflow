@@ -1,67 +1,48 @@
 {
-    email admin@{$DOMAIN}
+  auto_https off
 }
 
-# Frontend
-{$DOMAIN} {
-    reverse_proxy frontend:80
-    
-    encode gzip
-    
-    log {
-        output file /var/log/caddy/frontend.log
-    }
-}
+:80 {
 
-# API
-{$API_DOMAIN} {
-    reverse_proxy api:8000
-    
-    encode gzip
-    
-    header {
-        # Security headers
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "SAMEORIGIN"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "strict-origin-when-cross-origin"
-    }
-    
-    log {
-        output file /var/log/caddy/api.log
-    }
-}
-
-# Keycloak
-{$AUTH_DOMAIN} {
+  # -------------------------
+  # Keycloak
+  # -------------------------
+  redir /auth /auth/ 308
+  handle /auth/* {
     reverse_proxy keycloak:8080
-    
-    encode gzip
-    
-    log {
-        output file /var/log/caddy/auth.log
-    }
-}
+  }
 
-# Grafana
-{$MONITOR_DOMAIN} {
+  # -------------------------
+  # Grafana
+  # -------------------------
+  redir /grafana /grafana/ 308
+  handle /grafana/* {
     reverse_proxy grafana:3000
-    
-    encode gzip
-    
-    log {
-        output file /var/log/caddy/monitor.log
-    }
-}
+  }
 
-# Prefect
-{$PREFECT_DOMAIN} {
+  # -------------------------
+  # Prefect
+  # -------------------------
+  redir /prefect /prefect/ 308
+  handle /prefect/* {
     reverse_proxy prefect:4200
-    
-    encode gzip
-    
-    log {
-        output file /var/log/caddy/prefect.log
-    }
+  }
+
+  # -------------------------
+  # API
+  # -------------------------
+  handle /api/* {
+    reverse_proxy api:8000
+  }
+
+  handle /health {
+    reverse_proxy api:8000
+  }
+
+  # -------------------------
+  # Frontend (LAST)
+  # -------------------------
+  handle {
+    reverse_proxy frontend:80
+  }
 }
