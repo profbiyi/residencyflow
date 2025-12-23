@@ -16,9 +16,10 @@
   }
 
   # -------------------------
-  # Keycloak
+  # Keycloak (preserve /auth prefix)
   # -------------------------
-  handle_path /auth/* {
+  @auth path /auth /auth/*
+  handle @auth {
     reverse_proxy keycloak:8080
   }
 
