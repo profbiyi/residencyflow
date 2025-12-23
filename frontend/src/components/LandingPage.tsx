@@ -4,6 +4,14 @@ import { Shield, Zap, Database, ArrowRight, Layers, RefreshCw, CheckCircle2 } fr
 import { SOURCE_TYPES, DESTINATION_TYPES, ICON_MAP } from '../constants';
 import keycloak from '../auth/keycloak';
 
+async function startLogin() {
+  try {
+    await keycloak.init({ onLoad: 'login-required', checkLoginIframe: false });
+  } catch (e) {
+    console.error('Keycloak init/login failed', e);
+  }
+}
+
 interface Props {
   onLogin: () => void;
   onRegister: () => void;
@@ -25,10 +33,10 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister }) => {
           <span className="text-xl font-bold tracking-tight text-white">ResidencyFlow</span>
         </div>
         <div className="flex gap-4">
-          <button onClick={() => keycloak.login()} className="text-slate-300 hover:text-white font-medium px-4 py-2 transition-colors">
+<button onClick={startLogin} className="text-slate-300 hover:text-white font-medium px-4 py-2 transition-colors">
             Log in
           </button>
-          <button onClick={() => keycloak.login()} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-medium transition-all hover:scale-105 shadow-lg shadow-blue-900/20">
+<button onClick={startLogin} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-medium transition-all hover:scale-105 shadow-lg shadow-blue-900/20">
             Get Started
           </button>
         </div>
@@ -47,11 +55,10 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister }) => {
           The Universal Data Pipeline<br /> for Modern Teams.
         </h1>
         <p className="text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
-          Sync data from any API, Database, or File to your Warehouse in minutes. 
-          Powered by open-source standards (dlt + DuckDB) for maximum flexibility.
+          Sync data from any API, Database, or File to your Warehouse in minutes.
         </p>
         <div className="flex flex-col sm:flex-row justify-center gap-4">
-          <button onClick={() => keycloak.login()} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_40px_-10px_rgba(37,99,235,0.5)]">
+<button onClick={startLogin} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-lg font-bold text-lg flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_40px_-10px_rgba(37,99,235,0.5)]">
             Start Free Sync <ArrowRight size={20} />
           </button>
           <button onClick={scrollToCatalog} className="bg-slate-900 hover:bg-slate-800 text-white border border-slate-800 px-8 py-4 rounded-lg font-bold text-lg transition-colors">
