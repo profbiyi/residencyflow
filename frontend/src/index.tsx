@@ -1,15 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import keycloak from './auth/keycloak';
 
-const rootElement = document.getElementById('root');
-if (!rootElement) {
-  throw new Error("Could not find root element to mount to");
-}
+keycloak
+  .init({
+    onLoad: "check-sso",
+    pkceMethod: "S256",
+    checkLoginIframe: false,
+  })
+  .then(() => {
+    const rootElement = document.getElementById('root');
+    if (!rootElement) {
+      throw new Error("Could not find root element to mount to");
+    }
 
-const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+    ReactDOM.createRoot(rootElement).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  })
+  .catch((err) => {
+    console.error("Keycloak init failed", err);
+  });

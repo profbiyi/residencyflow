@@ -282,11 +282,13 @@ services:
       - caddy_config:/config
     networks:
       - frontend
+      - backend
     restart: unless-stopped
     depends_on:
       - api
       - keycloak
       - grafana
+      - prefect
 
 networks:
   backend:

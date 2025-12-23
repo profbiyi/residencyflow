@@ -17,6 +17,7 @@ import { Pipeline, PipelineStatus, User, ConnectorInstance, TeamMember, AuditLog
 import { ArrowLeft, Play, ArrowRight, Clock, CheckCircle, XCircle, Terminal, Download, Zap } from 'lucide-react';
 import { api } from './services/api';
 import { keycloakService } from './services/keycloak';
+import keycloak from './auth/keycloak';
 
 type ViewState = 'landing' | 'login' | 'register' | 'callback' | 'dashboard' | 'sources' | 'destinations' | 'pipelines' | 'observability' | 'insights' | 'settings' | 'pipeline-detail' | 'backend' | 'super-admin';
 
@@ -64,6 +65,17 @@ function App() {
         localStorage.removeItem('token');
       }
     }
+  }, []);
+  
+  // Token refresh interval
+  useEffect(() => {
+    const interval = setInterval(() => {
+      keycloak.updateToken(60).catch(() => {
+        keycloak.login();
+      });
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
   
   // Save activeView to sessionStorage whenever it changes
@@ -288,6 +300,11 @@ function App() {
         }}
       />
     );
+  }
+
+  // Check Keycloak authentication for protected routes
+  if (!keycloak.authenticated && activeView !== 'landing') {
+    return <LandingPage onLogin={() => setActiveView('login')} onRegister={() => setActiveView('login')} />;
   }
 
   if (!user) {

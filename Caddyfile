@@ -4,44 +4,28 @@
 
 :80 {
 
-  # -------------------------
-  # Keycloak
-  # -------------------------
-  redir /auth /auth/ 308
-  handle /auth/* {
-    reverse_proxy keycloak:8080
-  }
+  @prefect path /prefect /prefect/*
 
-  # -------------------------
-  # Grafana
-  # -------------------------
-  redir /grafana /grafana/ 308
-  handle /grafana/* {
-    reverse_proxy grafana:3000
-  }
-
-  # -------------------------
-  # Prefect
-  # -------------------------
-  redir /prefect /prefect/ 308
-  handle /prefect/* {
+  handle @prefect {
+    uri strip_prefix /prefect
     reverse_proxy prefect:4200
   }
 
-  # -------------------------
-  # API
-  # -------------------------
-  handle /api/* {
+  @auth path /auth /auth/*
+  handle @auth {
+    reverse_proxy keycloak:8080
+  }
+
+  @grafana path /grafana /grafana/*
+  handle @grafana {
+    reverse_proxy grafana:3000
+  }
+
+  @api path /api /api/*
+  handle @api {
     reverse_proxy api:8000
   }
 
-  handle /health {
-    reverse_proxy api:8000
-  }
-
-  # -------------------------
-  # Frontend (LAST)
-  # -------------------------
   handle {
     reverse_proxy frontend:80
   }
