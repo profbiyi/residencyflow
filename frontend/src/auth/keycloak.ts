@@ -1,7 +1,7 @@
 import Keycloak from "keycloak-js";
 
 const keycloak = new Keycloak({
-  url: "http://localhost/auth",
+  url: `${window.location.protocol}//${window.location.host}/auth`,
   realm: "residencyflow",
   clientId: "residencyflow-frontend",
 });
