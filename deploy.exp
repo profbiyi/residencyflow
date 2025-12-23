@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+
+set timeout 300
+
+spawn ssh root@144.91.84.147
+
+expect "password:"
+send "Zainab2591\r"
+
+expect "root@"
+send "cd /root/residencyflow\r"
+
+expect "root@"
+send "git pull origin main\r"
+
+expect "root@"
+send "docker compose down\r"
+
+expect "root@"
+send "docker compose up -d\r"
+
+expect "root@"
+send "docker ps\r"
+
+expect "root@"
+send "exit\r"
+
+expect eof

@@ -3,7 +3,8 @@
   # -------------------------
   # Frontend assets (MUST be first)
   # -------------------------
-  handle_path /assets/* {
+  @assets path /assets/*
+  handle @assets {
     reverse_proxy frontend:80
   }
 

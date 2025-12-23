@@ -1,0 +1,19 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+
+spawn ssh root@144.91.84.147
+
+expect "password:"
+send "Zainab2591\r"
+
+expect "root@"
+send "docker exec residencyflow-frontend ls -la /usr/share/nginx/html/assets/\r"
+
+expect "root@"
+send "curl -I http://localhost:5173/assets/index-ClkNi15b.js\r"
+
+expect "root@"
+send "exit\r"
+
+expect eof
