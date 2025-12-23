@@ -256,7 +256,7 @@ services:
       dockerfile: Dockerfile
     container_name: residencyflow-frontend
     environment:
-      VITE_API_URL: http://${DOMAIN:-localhost}:8000
+      VITE_API_URL: /api
     ports:
       - "5173:80"
     networks:
